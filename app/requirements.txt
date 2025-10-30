@@ -1,0 +1,5 @@
+
+transformers>=4.44
+datasets>=2.20
+pyarrow
+pandas

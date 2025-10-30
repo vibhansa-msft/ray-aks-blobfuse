@@ -1,0 +1,143 @@
+# ========== RAY HPO JOB (CPU) ==========
+# This RayJob specification configures a distributed Ray cluster for CPU-only
+# hyperparameter optimization of the DistilBERT model on the AG News dataset.
+#
+# Key features:
+#   - CPU-only worker nodes for cost-effective distributed training
+#   - Distributed Ray cluster with head and worker nodes
+#   - Azure Blob Storage integration via Blobfuse2 mount
+#   - Object spilling for memory-intensive operations
+#   - Auto-scaling worker nodes (1-100 replicas)
+#   - Standard Ray 2.50.0 image with Python 3.11
+
+apiVersion: ray.io/v1
+kind: RayJob
+
+# ========== METADATA ==========
+
+metadata:
+  name: hpo-job-cpu
+
+# ========== RAY JOB SPECIFICATION ==========
+
+spec:
+  # ===== Job Configuration =====
+  
+  # Entry point command executed on Ray job submit
+  entrypoint: "python /app/train_hpo.py"
+
+  # Runtime environment variables and dependencies
+  runtimeEnvYAML: |
+    pip:
+      - torch==2.1.0
+      - transformers==4.36.0
+      - datasets==2.16.0
+      - pyarrow==14.0.0
+    env_vars:
+      BLOB_DIR: /mnt/blob/ag_news
+      NUM_WORKERS: "__NUM_WORKERS__"
+      NUM_SAMPLES: "12"
+      PYTHONPATH: /app
+
+  # ========== RAY CLUSTER SPECIFICATION ==========
+
+  rayClusterSpec:
+    # Ray version - uses official Ray image from Docker Hub
+    rayVersion: "2.50.0"
+
+    # ===== HEAD NODE CONFIGURATION =====
+    # Single head node that coordinates the distributed cluster
+    
+    headGroupSpec:
+      serviceType: ClusterIP
+      template:
+        spec:
+          initContainers:
+          - name: setup-blobfuse-cache
+            image: busybox:1.28
+            command: ['mkdir', '-p', '/mnt/blobfusecache']
+            volumeMounts:
+              - name: cache-dir
+                mountPath: /mnt
+          containers:
+          - name: ray-head
+            # Standard Ray image with Python support
+            image: rayproject/ray:2.50.0
+            
+            # Ray object spilling configuration for memory management
+            env:
+              - name: RAY_OBJECT_SPILLING_CONFIG
+                value: |
+                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+            
+            # Mount Azure Blob Storage for dataset access
+            volumeMounts:
+              - name: blob-dataset
+                mountPath: /mnt/blob
+              - name: app-code
+                mountPath: /app
+              - name: cache-dir
+                mountPath: /mnt/blobfusecache
+          
+          # Persistent volume for Azure Blob Storage
+          volumes:
+            - name: blob-dataset
+              persistentVolumeClaim:
+                claimName: blob-pvc
+            - name: app-code
+              configMap:
+                name: hpo-app-code
+                defaultMode: 0755
+            - name: cache-dir
+              emptyDir: {}
+
+    # ===== CPU WORKER NODES CONFIGURATION =====
+    # Worker nodes that execute distributed training tasks
+    # CPU workers can auto-scale based on demand
+    
+    workerGroupSpecs:
+    - groupName: cpu-group
+      replicas: __WORKER_REPLICAS__
+      # Auto-scaling configuration (can scale down to 1, up to 100 replicas)
+      minReplicas: 1
+      maxReplicas: 100
+      template:
+        spec:
+          initContainers:
+          - name: setup-blobfuse-cache
+            image: busybox:1.28
+            command: ['mkdir', '-p', '/mnt/blobfusecache']
+            volumeMounts:
+              - name: cache-dir
+                mountPath: /mnt
+          containers:
+          - name: ray-worker
+            # Standard Ray image with Python support
+            image: rayproject/ray:2.50.0
+            
+            # Ray object spilling for memory management
+            env:
+              - name: RAY_OBJECT_SPILLING_CONFIG
+                value: |
+                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+            
+            # Mount Azure Blob Storage for dataset access
+            volumeMounts:
+              - name: blob-dataset
+                mountPath: /mnt/blob
+              - name: app-code
+                mountPath: /app
+              - name: cache-dir
+                mountPath: /mnt/blobfusecache
+          
+          # Persistent volume for Azure Blob Storage
+          volumes:
+            - name: blob-dataset
+              persistentVolumeClaim:
+                claimName: blob-pvc
+            - name: app-code
+              configMap:
+                name: hpo-app-code
+                defaultMode: 0755
+            - name: cache-dir
+              emptyDir: {}

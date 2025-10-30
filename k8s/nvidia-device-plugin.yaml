@@ -1,0 +1,103 @@
+# ========== NVIDIA GPU DEVICE PLUGIN ==========
+# This manifest deploys the NVIDIA device plugin as a DaemonSet on GPU nodes.
+# The plugin enables Kubernetes to discover, expose, and manage GPU resources,
+# allowing pods to request and utilize GPUs for training jobs.
+#
+# Key features:
+#   - Automatic GPU discovery and availability reporting
+#   - Runs only on GPU nodes via nodeSelector and tolerations
+#   - Allocates GPUs exclusively to requesting pods
+#   - Works with NVIDIA CUDA driver installed on nodes
+#
+# Prerequisites:
+#   - AKS GPU node pools with NVIDIA drivers pre-installed
+#   - GPU nodes must have taint "sku=gpu:NoSchedule"
+#
+# Related resources:
+#   - RayJob GPU spec: rayjob-gpu.yaml
+
+# ========== NAMESPACE ==========
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-resources
+
+# ========== DAEMON SET ==========
+
+---
+
+apiVersion: apps/v1
+kind: DaemonSet
+
+# ===== Metadata =====
+
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: gpu-resources
+
+# ===== Specification =====
+
+spec:
+  # Pod selector for DaemonSet management
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  
+  # Rolling update strategy - replace old pods as new ones come up
+  updateStrategy:
+    type: RollingUpdate
+  
+  # ===== Pod Template =====
+  
+  template:
+    # Pod labels for identification and selection
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    
+    spec:
+      # ===== GPU Node Affinity =====
+      
+      # Tolerate GPU node taint to schedule on GPU nodes only
+      tolerations:
+      - key: "sku"
+        operator: "Equal"
+        value: "gpu"
+        effect: "NoSchedule"
+      
+      # System critical priority to ensure GPU plugin runs
+      priorityClassName: "system-node-critical"
+      
+      # ===== Container Configuration =====
+      
+      containers:
+      - image: nvcr.io/nvidia/k8s-device-plugin:v0.17.2
+        name: nvidia-device-plugin-ctr
+        
+        # Environment variables for plugin behavior
+        env:
+          # Don't fail initialization if GPU detection issues occur
+          - name: FAIL_ON_INIT_ERROR
+            value: "false"
+        
+        # Security context: minimal privilege (required for device plugin)
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: { drop: ["ALL"] }
+        
+        # ===== Volume Mounts =====
+        
+        # Mount kubelet device plugin directory
+        # Plugin communicates with kubelet via Unix socket here
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+      
+      # ===== Volumes =====
+      
+      # Host path volume for kubelet device plugin socket
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins

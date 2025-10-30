@@ -1,0 +1,112 @@
+# ========== RAY HPO JOB (GPU) ==========
+# This RayJob specification configures a distributed Ray cluster for GPU-accelerated
+# hyperparameter optimization of the DistilBERT model on the AG News dataset.
+#
+# Key features:
+#   - GPU worker nodes for accelerated training
+#   - Distributed Ray cluster with head and worker nodes
+#   - Azure Blob Storage integration via Blobfuse2 mount
+#   - Object spilling for memory-intensive operations
+#   - GPU node affinity via taints and tolerations
+#   - Standard Ray 2.50.0 GPU image with CUDA support
+
+apiVersion: ray.io/v1
+kind: RayJob
+
+# ========== METADATA ==========
+
+metadata:
+  name: hpo-job-gpu
+
+# ========== RAY JOB SPECIFICATION ==========
+
+spec:
+  # ===== Job Configuration =====
+  
+  # Entry point command executed on Ray job submit
+  entrypoint: "python /app/train_hpo.py"
+
+  # Runtime environment variables passed to job
+  runtimeEnvYAML: |
+    env_vars:
+      BLOB_DIR: /mnt/blob/ag_news
+      NUM_WORKERS: "__NUM_WORKERS__"
+      NUM_SAMPLES: "8"
+
+  # ========== RAY CLUSTER SPECIFICATION ==========
+
+  rayClusterSpec:
+    # Ray version - uses official Ray GPU image from Docker Hub
+    rayVersion: "2.50.0"
+
+    # ===== HEAD NODE CONFIGURATION =====
+    # Single head node that coordinates the distributed cluster
+    
+    headGroupSpec:
+      serviceType: ClusterIP
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            # Standard Ray GPU image with CUDA support
+            image: rayproject/ray:2.50.0-gpu
+            
+            # Ray object spilling configuration for memory management
+            env:
+              - name: RAY_OBJECT_SPILLING_CONFIG
+                value: |
+                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+            
+            # Mount Azure Blob Storage for dataset access
+            volumeMounts:
+              - name: blob-dataset
+                mountPath: /mnt/blob
+          
+          # Persistent volume for Azure Blob Storage
+          volumes:
+            - name: blob-dataset
+              persistentVolumeClaim:
+                claimName: blob-pvc
+
+    # ===== GPU WORKER NODES CONFIGURATION =====
+    # Worker nodes that execute distributed training tasks
+    
+    workerGroupSpecs:
+    - groupName: gpu-group
+      replicas: __WORKER_REPLICAS__
+      template:
+        spec:
+          # GPU node selection via tolerations
+          # Tolerates the gpu:NoSchedule taint set on GPU node pools
+          tolerations:
+          - key: "sku"
+            operator: "Equal"
+            value: "gpu"
+            effect: "NoSchedule"
+          
+          containers:
+          - name: ray-worker
+            # Standard Ray GPU image with CUDA support
+            image: rayproject/ray:2.50.0-gpu
+            
+            # GPU resource requirements (1 GPU per worker pod)
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+            
+            # Ray object spilling for memory management
+            env:
+              - name: RAY_OBJECT_SPILLING_CONFIG
+                value: |
+                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+            
+            # Mount Azure Blob Storage for dataset access
+            volumeMounts:
+              - name: blob-dataset
+                mountPath: /mnt/blob
+          
+          # Persistent volume for Azure Blob Storage
+          volumes:
+            - name: blob-dataset
+              persistentVolumeClaim:
+                claimName: blob-pvc

@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+
+# Virtual Environment
+.venv
+*.venv
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Kubernetes
+kubeconfig
+.kube/
+
+# Azure
+.azure/
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Data (large files)
+ag_news_parquet/
+data/ag_news_parquet/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.retry
+.history
+kubelog.txt
