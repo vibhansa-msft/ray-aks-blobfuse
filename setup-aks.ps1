@@ -118,44 +118,93 @@ if ($EnableGpu) {
 }
 
 # ===== Create StorageClass and PVC for Blobfuse2 =====
-Write-Host "Deleting existing StorageClass 'azureblob-fuse2' (if any) to apply new configuration..."
+Write-Host "Deleting existing StorageClasses (if any) to apply new configuration..."
 try {
     kubectl delete storageclass azureblob-fuse2 2>$null | Out-Null
-    Write-Host "Previous StorageClass deleted." -ForegroundColor Yellow
+    Write-Host "Previous StorageClass 'azureblob-fuse2' deleted." -ForegroundColor Yellow
 } catch {
     # StorageClass doesn't exist, proceed
 }
 
-Write-Host "Creating StorageClass for Blobfuse2..."
+try {
+    kubectl delete storageclass blobfuse-training-data 2>$null | Out-Null
+    Write-Host "Previous StorageClass 'blobfuse-training-data' deleted." -ForegroundColor Yellow
+} catch {
+    # StorageClass doesn't exist, proceed
+}
+
+try {
+    kubectl delete storageclass blobfuse-checkpoints 2>$null | Out-Null
+    Write-Host "Previous StorageClass 'blobfuse-checkpoints' deleted." -ForegroundColor Yellow
+} catch {
+    # StorageClass doesn't exist, proceed
+}
+
+Write-Host "Creating StorageClasses for Blobfuse2..."
 $scYaml = Get-Content k8s/storageclass-blobfuse2.yaml -Raw
 $scYaml = $scYaml -replace "__STORAGE_ACCOUNT__", $StorageAccountName -replace "__CONTAINER__", "dataset" -replace "__RESOURCE_GROUP__", $StorageAccountResourceGroup
 $scYaml | kubectl apply -f - | Out-Null
 
-Write-Host "Deleting existing PVC 'blob-pvc' (if any) to apply new configuration..."
+Write-Host "Deleting existing PVCs (if any) to apply new configuration..."
 try {
     kubectl delete pvc blob-pvc 2>$null | Out-Null
-    Write-Host "Previous PVC deleted." -ForegroundColor Yellow
+    Write-Host "Previous PVC 'blob-pvc' deleted." -ForegroundColor Yellow
 } catch {
     # PVC doesn't exist, proceed
 }
 
-Write-Host "Creating PVC for Blobfuse2..."
-$pvcCreated = $false
+try {
+    kubectl delete pvc blob-pvc-checkpoint 2>$null | Out-Null
+    Write-Host "Previous PVC 'blob-pvc-checkpoint' deleted." -ForegroundColor Yellow
+} catch {
+    # PVC doesn't exist, proceed
+}
+
+try {
+    kubectl delete pvc blob-pvc-dataset 2>$null | Out-Null
+    Write-Host "Previous PVC 'blob-pvc-dataset' deleted." -ForegroundColor Yellow
+} catch {
+    # PVC doesn't exist, proceed
+}
+
+Write-Host "Creating PVC for Blobfuse2 (checkpoints with read-write access)..."
+$pvcCheckpointsCreated = $false
 $retryCount = 0
 $maxRetries = 10
 
-while (-not $pvcCreated -and $retryCount -lt $maxRetries) {
+while (-not $pvcCheckpointsCreated -and $retryCount -lt $maxRetries) {
     try {
-        kubectl apply -f k8s/pvc-blob.yaml 2>&1 | Out-Null
-        $pvcCreated = $true
-        Write-Host "PVC created successfully." -ForegroundColor Green
+        kubectl apply -f k8s/pvc-checkpoint.yaml 2>&1 | Out-Null
+        $pvcCheckpointsCreated = $true
+        Write-Host "Checkpoints PVC created successfully." -ForegroundColor Green
     } catch {
         $retryCount++
         if ($retryCount -lt $maxRetries) {
             Write-Host "PVC creation attempt $retryCount failed. Retrying in 10 seconds..." -ForegroundColor Yellow
             Start-Sleep -Seconds 10
         } else {
-            Write-Host "ERROR: Failed to create PVC after $maxRetries attempts." -ForegroundColor Red
+            Write-Host "ERROR: Failed to create checkpoints PVC after $maxRetries attempts." -ForegroundColor Red
+            exit 1
+        }
+    }
+}
+
+Write-Host "Creating PVC for Blobfuse2 (dataset with read-only access)..."
+$pvcDatasetCreated = $false
+$retryCount = 0
+
+while (-not $pvcDatasetCreated -and $retryCount -lt $maxRetries) {
+    try {
+        kubectl apply -f k8s/pvc-training-data.yaml 2>&1 | Out-Null
+        $pvcDatasetCreated = $true
+        Write-Host "Dataset PVC created successfully." -ForegroundColor Green
+    } catch {
+        $retryCount++
+        if ($retryCount -lt $maxRetries) {
+            Write-Host "Dataset PVC creation attempt $retryCount failed. Retrying in 10 seconds..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+        } else {
+            Write-Host "ERROR: Failed to create dataset PVC after $maxRetries attempts." -ForegroundColor Red
             exit 1
         }
     }

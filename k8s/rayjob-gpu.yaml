@@ -34,7 +34,8 @@ spec:
       - datasets==2.16.0
       - pyarrow==14.0.0
     env_vars:
-      BLOB_DIR: /mnt/blob/ag_news
+      DATA_DIR: /mnt/blob/datasets
+      CHECKPOINT_DIR: /mnt/blob/checkpoints
       NUM_WORKERS: "__NUM_WORKERS__"
       NUM_SAMPLES: "12"
       PYTHONPATH: /app
@@ -70,20 +71,27 @@ spec:
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
             
-            # Mount Azure Blob Storage for dataset access
+            # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:
               - name: blob-dataset
-                mountPath: /mnt/blob
+                mountPath: /mnt/blob/datasets
+                readOnly: true
+              - name: blob-checkpoints
+                mountPath: /mnt/blob/checkpoints
               - name: app-code
                 mountPath: /app
               - name: cache-dir
                 mountPath: /mnt/blobfusecache
           
-          # Persistent volume for Azure Blob Storage
+          # Persistent volumes for Azure Blob Storage
           volumes:
             - name: blob-dataset
               persistentVolumeClaim:
-                claimName: blob-pvc
+                claimName: blob-pvc-dataset
+                readOnly: true
+            - name: blob-checkpoints
+              persistentVolumeClaim:
+                claimName: blob-pvc-checkpoint
             - name: app-code
               configMap:
                 name: hpo-app-code
@@ -130,20 +138,27 @@ spec:
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
             
-            # Mount Azure Blob Storage for dataset access
+            # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:
               - name: blob-dataset
-                mountPath: /mnt/blob
+                mountPath: /mnt/blob/datasets
+                readOnly: true
+              - name: blob-checkpoints
+                mountPath: /mnt/blob/checkpoints
               - name: app-code
                 mountPath: /app
               - name: cache-dir
                 mountPath: /mnt/blobfusecache
           
-          # Persistent volume for Azure Blob Storage
+          # Persistent volumes for Azure Blob Storage
           volumes:
             - name: blob-dataset
               persistentVolumeClaim:
-                claimName: blob-pvc
+                claimName: blob-pvc-dataset
+                readOnly: true
+            - name: blob-checkpoints
+              persistentVolumeClaim:
+                claimName: blob-pvc-checkpoint
             - name: app-code
               configMap:
                 name: hpo-app-code

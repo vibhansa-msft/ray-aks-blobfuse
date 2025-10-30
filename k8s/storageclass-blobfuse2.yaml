@@ -1,8 +1,9 @@
+# StorageClass for READ-ONLY training data (AG News dataset)
+# Uses preload option for optimized sequential reads
 apiVersion: storage.k8s.io/v1 
 kind: StorageClass
-
 metadata:
-  name: azureblob-fuse2
+  name: blobfuse-training-data
 
 provisioner: blob.csi.azure.com
 parameters:
@@ -14,10 +15,37 @@ parameters:
 
 mountOptions:
   - -o allow_other
-  - --file-cache-timeout-in-seconds=120
+  - -o ro
+  - --preload=true
+  - --file-cache-timeout-in-seconds=3600
   - --tmp-path=/mnt/blobfusecache
 
 allowVolumeExpansion: true
 reclaimPolicy: Retain
 volumeBindingMode: Immediate
 
+---
+
+# StorageClass for READ-WRITE checkpoints (model weights, metrics, etc.)
+# Uses block-cache for optimized writes
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: blobfuse-checkpoints
+
+provisioner: blob.csi.azure.com
+parameters:
+  protocol: fuse
+  storageAccount: __STORAGE_ACCOUNT__
+  containername: __CONTAINER__
+  resourceGroup: __RESOURCE_GROUP__
+  mountWithWorkloadIdentityToken: "true"
+
+mountOptions:
+  - -o allow_other
+  - -o direct_io
+  - --block-cache
+
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

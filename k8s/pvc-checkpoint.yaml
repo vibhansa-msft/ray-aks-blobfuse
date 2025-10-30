@@ -1,0 +1,38 @@
+# ========== PERSISTENT VOLUME CLAIM (AZURE BLOB STORAGE - CHECKPOINTS) ==========
+# This PVC provides read-write access to Azure Blob Storage for storing model checkpoints,
+# metrics, and training artifacts via Blobfuse2 CSI driver.
+#
+# Key features:
+#   - Read-write many access (multiple pods can mount simultaneously)
+#   - Blobfuse2 CSI driver with block-cache for optimized writes
+#   - Used by Ray head pod to store training checkpoints
+#   - Large capacity for model weights and training artifacts
+#
+# Related resources:
+#   - StorageClass: storageclass-blobfuse2.yaml (blobfuse-checkpoints)
+#   - Dataset PVC: pvc-training-data.yaml
+#   - Consumer: rayjob-gpu.yaml, rayjob-cpu.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+
+# ========== METADATA ==========
+
+metadata:
+  name: blob-pvc-checkpoint
+
+# ========== SPECIFICATION ==========
+
+spec:
+  # Access mode: multiple pods can read and write simultaneously
+  # This is essential for Ray head pod storing checkpoints
+  accessModes: [ "ReadWriteMany" ]
+  
+  # StorageClass optimized for read-write checkpoint access with block-cache
+  storageClassName: blobfuse-checkpoints
+  
+  # Storage capacity requested
+  # Note: This is the requested capacity; actual quota depends on storage account limits
+  resources:
+    requests:
+      storage: 5Ti  # 5 Terabytes for checkpoints and training artifacts

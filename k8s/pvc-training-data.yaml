@@ -1,0 +1,35 @@
+# ========== PERSISTENT VOLUME CLAIM (AZURE BLOB STORAGE - READ-ONLY DATASET) ==========
+# This PVC provides read-only access to the AG News training dataset via Blobfuse2 CSI driver.
+# It mounts only the ag_news subdirectory for optimized sequential reads.
+#
+# Key features:
+#   - Read-only access to training data
+#   - Preload option for optimized dataset reads
+#   - Mounted by Ray worker pods for training
+#   - Prevents accidental data modification
+#
+# Related resources:
+#   - StorageClass: storageclass-blobfuse2.yaml (blobfuse-training-data)
+#   - Consumer: rayjob-gpu.yaml, rayjob-cpu.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+
+# ========== METADATA ==========
+
+metadata:
+  name: blob-pvc-dataset
+
+# ========== SPECIFICATION ==========
+
+spec:
+  # Access mode: read-only, multiple pods can read simultaneously
+  accessModes: [ "ReadOnlyMany" ]
+  
+  # StorageClass optimized for read-only dataset access
+  storageClassName: blobfuse-training-data
+  
+  # Storage capacity requested
+  resources:
+    requests:
+      storage: 5Ti  # 5 Terabytes for AG News dataset

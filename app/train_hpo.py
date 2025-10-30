@@ -11,10 +11,6 @@ Key components:
   - Ray Tune hyperparameter search with ASHA scheduler
   - Distributed training via Ray TorchTrainer
 
-Environment variables:
-  - BLOB_DIR: Path to Parquet dataset (default: /mnt/blob/ag_news)
-  - NUM_WORKERS: Number of Ray workers (default: 8)
-  - NUM_SAMPLES: Number of HPO trials (default: 12)
 """
 
 # ========== IMPORTS ==========
@@ -31,8 +27,11 @@ import torch
 
 # ========== CONFIGURATION ==========
 
-# Directory for blob storage - mount point for Azure Blob storage
-BLOB_DIR = os.getenv("BLOB_DIR", "/mnt/blob/ag_news")
+# Directory for blob storage - mount point for Azure Blob storage (training data - read-only)
+DATA_DIR = os.getenv("DATA_DIR", "/mnt/blob/datasets")
+
+# Directory for checkpoints - mount point for storing model checkpoints (read-write)
+CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
 
 # ========== DATA LOADING ==========
 
@@ -41,7 +40,7 @@ def load_parquet_ds(pattern: str):
     Load parquet files matching a pattern from blob storage.
     
     Args:
-        pattern: Glob pattern to match parquet files (e.g., "/mnt/blob/ag_news/train_0001*.parquet")
+        pattern: Glob pattern to match parquet files (e.g., "/mnt/blob/datasets/train_0001*.parquet")
     
     Returns:
         Ray Dataset materialized in memory for efficient access
@@ -146,19 +145,26 @@ def train_loop(config):
     
     # ===== Save Checkpoint =====
     
-    # Create checkpoint directory if it doesn't exist
-    checkpoint_dir = "/mnt/blob/checkpoints"
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    # Create checkpoint directory if it doesn't exist (read-write mount point)
+    # Checkpoints are saved to a subdirectory within the checkpoints mount
+    checkpoint_subdir = os.path.join(CHECKPOINT_DIR, "model_checkpoints")
+    os.makedirs(checkpoint_subdir, exist_ok=True)
     
-    # Save model checkpoint
-    checkpoint_path = os.path.join(checkpoint_dir, "model_checkpoint.pt")
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': float(loss.item())
-    }, checkpoint_path)
+    # Save model checkpoint with timestamp for versioning
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    checkpoint_path = os.path.join(checkpoint_subdir, f"model_checkpoint_{timestamp}.pt")
     
-    print(f"Model checkpoint saved to {checkpoint_path}")
+    try:
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': float(loss.item())
+        }, checkpoint_path)
+        print(f"Model checkpoint saved to {checkpoint_path}")
+    except Exception as e:
+        print(f"Error saving checkpoint: {e}")
+        raise
 
 # ========== HYPERPARAMETER OPTIMIZATION ==========
 
@@ -175,12 +181,39 @@ def main():
     # Connect to Ray cluster (running on AKS via RayJob)
     ray.init(address="auto")
     
+    # ===== Verify Mount Points =====
+    
+    # Check if data directory exists and is readable
+    print(f"\n=== Verifying Mount Points ===")
+    print(f"DATA_DIR: {DATA_DIR}")
+    if os.path.exists(DATA_DIR):
+        print(f"✓ DATA_DIR exists")
+        try:
+            contents = os.listdir(DATA_DIR)
+            print(f"  Contents: {contents}")
+        except Exception as e:
+            print(f"  Error listing contents: {e}")
+    else:
+        print(f"✗ DATA_DIR does not exist")
+    
+    print(f"CHECKPOINT_DIR: {CHECKPOINT_DIR}")
+    if os.path.exists(CHECKPOINT_DIR):
+        print(f"✓ CHECKPOINT_DIR exists")
+        try:
+            contents = os.listdir(CHECKPOINT_DIR)
+            print(f"  Contents: {contents}")
+        except Exception as e:
+            print(f"  Error listing contents: {e}")
+    else:
+        print(f"✗ CHECKPOINT_DIR does not exist")
+    
     # ===== Data Loading =====
     
-    # Load training dataset from blob storage
-    print(f"Loading dataset from {BLOB_DIR}...")
+    # Load training dataset from blob storage (read-only mount point)
+    # The datasets PVC mounts the dataset container which has ag_news subdirectory
+    print(f"Loading dataset from {DATA_DIR}/ag_news/...")
     try:
-        train_ds = load_parquet_ds(f"{BLOB_DIR}/train_00010.parquet")
+        train_ds = load_parquet_ds(f"{DATA_DIR}/ag_news/train_0001*.parquet")
         print(f"Dataset loaded successfully with {train_ds.count()} records")
     except Exception as e:
         print(f"Error loading dataset: {e}")
