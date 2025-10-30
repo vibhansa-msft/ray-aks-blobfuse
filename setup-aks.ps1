@@ -16,14 +16,14 @@
     Azure location
 .PARAMETER EnableGpu
     Enable GPU support (boolean)
-.PARAMETER GpuNodeCount
-    Number of GPU nodes (if GPU enabled)
+.PARAMETER NodeCount
+    Number of nodes
 .PARAMETER VmType
-    GPU VM size (if GPU enabled)
-.PARAMETER CpuNodeCount
-    Number of CPU nodes
-.PARAMETER VmType
-    CPU VM size
+    VM size
+.PARAMETER StorageAccountName
+    Storage account name for role assignment
+.PARAMETER StorageAccountResourceGroup
+    Resource group of the storage account
 #>
 
 param(
@@ -32,7 +32,9 @@ param(
     [string]$Location,
     [bool]$EnableGpu = $false,
     [int]$NodeCount = 2,
-    [string]$VmType = "Standard_D4_v2"
+    [string]$VmType = "Standard_D4_v2",
+    [string]$StorageAccountName = "",
+    [string]$StorageAccountResourceGroup = ""
 )
 
 Write-Host "========== AKS CLUSTER SETUP ==========" -ForegroundColor Cyan
@@ -61,9 +63,28 @@ if (-not $aksExists) {
         --enable-managed-identity `
         --enable-blob-driver | Out-Null
         
-    # Wait for cluster to be ready
-    Write-Host "Waiting for AKS cluster to be ready..."
-    Start-Sleep -Seconds 30
+    # Wait for cluster to be fully ready
+    Write-Host "Waiting for AKS cluster to be ready (this may take several minutes)..."
+    $clusterReady = $false
+    $retryCount = 0
+    $maxRetries = 60  # 30 minutes with 30-second intervals
+    
+    while (-not $clusterReady -and $retryCount -lt $maxRetries) {
+        $provisioningState = az aks show -g $ResourceGroup -n $ClusterName --query "provisioningState" -o tsv 2>$null
+        if ($provisioningState -eq "Succeeded") {
+            $clusterReady = $true
+            Write-Host "AKS cluster is ready!" -ForegroundColor Green
+        } else {
+            $retryCount++
+            Write-Host "Cluster status: $provisioningState (attempt $retryCount/$maxRetries)..."
+            Start-Sleep -Seconds 30
+        }
+    }
+    
+    if (-not $clusterReady) {
+        Write-Host "ERROR: AKS cluster failed to reach ready state after 30 minutes." -ForegroundColor Red
+        exit 1
+    }
 }
 
 # ===== Get AKS Credentials =====
@@ -107,7 +128,7 @@ try {
 
 Write-Host "Creating StorageClass for Blobfuse2..."
 $scYaml = Get-Content k8s/storageclass-blobfuse2.yaml -Raw
-$scYaml = $scYaml -replace "__STORAGE_ACCOUNT__", $SA -replace "__CONTAINER__", $Container -replace "__RESOURCE_GROUP__", $RG
+$scYaml = $scYaml -replace "__STORAGE_ACCOUNT__", $StorageAccountName -replace "__CONTAINER__", "dataset" -replace "__RESOURCE_GROUP__", $StorageAccountResourceGroup
 $scYaml | kubectl apply -f - | Out-Null
 
 Write-Host "Deleting existing PVC 'blob-pvc' (if any) to apply new configuration..."
@@ -119,9 +140,26 @@ try {
 }
 
 Write-Host "Creating PVC for Blobfuse2..."
-kubectl apply -f k8s/pvc-blob.yaml | Out-Null
+$pvcCreated = $false
+$retryCount = 0
+$maxRetries = 10
+
+while (-not $pvcCreated -and $retryCount -lt $maxRetries) {
+    try {
+        kubectl apply -f k8s/pvc-blob.yaml 2>&1 | Out-Null
+        $pvcCreated = $true
+        Write-Host "PVC created successfully." -ForegroundColor Green
+    } catch {
+        $retryCount++
+        if ($retryCount -lt $maxRetries) {
+            Write-Host "PVC creation attempt $retryCount failed. Retrying in 10 seconds..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+        } else {
+            Write-Host "ERROR: Failed to create PVC after $maxRetries attempts." -ForegroundColor Red
+            exit 1
+        }
+    }
+}
 
 Write-Host "AKS cluster setup completed successfully!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
-
-

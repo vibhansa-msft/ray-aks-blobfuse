@@ -26,12 +26,18 @@ spec:
   # Entry point command executed on Ray job submit
   entrypoint: "python /app/train_hpo.py"
 
-  # Runtime environment variables passed to job
+  # Runtime environment variables and dependencies
   runtimeEnvYAML: |
+    pip:
+      - torch==2.1.0
+      - transformers==4.36.0
+      - datasets==2.16.0
+      - pyarrow==14.0.0
     env_vars:
       BLOB_DIR: /mnt/blob/ag_news
       NUM_WORKERS: "__NUM_WORKERS__"
-      NUM_SAMPLES: "8"
+      NUM_SAMPLES: "12"
+      PYTHONPATH: /app
 
   # ========== RAY CLUSTER SPECIFICATION ==========
 
@@ -46,6 +52,13 @@ spec:
       serviceType: ClusterIP
       template:
         spec:
+          initContainers:
+          - name: setup-blobfuse-cache
+            image: busybox:1.28
+            command: ['mkdir', '-p', '/mnt/blobfusecache']
+            volumeMounts:
+              - name: cache-dir
+                mountPath: /mnt
           containers:
           - name: ray-head
             # Standard Ray GPU image with CUDA support
@@ -61,12 +74,22 @@ spec:
             volumeMounts:
               - name: blob-dataset
                 mountPath: /mnt/blob
+              - name: app-code
+                mountPath: /app
+              - name: cache-dir
+                mountPath: /mnt/blobfusecache
           
           # Persistent volume for Azure Blob Storage
           volumes:
             - name: blob-dataset
               persistentVolumeClaim:
                 claimName: blob-pvc
+            - name: app-code
+              configMap:
+                name: hpo-app-code
+                defaultMode: 0755
+            - name: cache-dir
+              emptyDir: {}
 
     # ===== GPU WORKER NODES CONFIGURATION =====
     # Worker nodes that execute distributed training tasks
@@ -76,6 +99,13 @@ spec:
       replicas: __WORKER_REPLICAS__
       template:
         spec:
+          initContainers:
+          - name: setup-blobfuse-cache
+            image: busybox:1.28
+            command: ['mkdir', '-p', '/mnt/blobfusecache']
+            volumeMounts:
+              - name: cache-dir
+                mountPath: /mnt
           # GPU node selection via tolerations
           # Tolerates the gpu:NoSchedule taint set on GPU node pools
           tolerations:
@@ -104,9 +134,19 @@ spec:
             volumeMounts:
               - name: blob-dataset
                 mountPath: /mnt/blob
+              - name: app-code
+                mountPath: /app
+              - name: cache-dir
+                mountPath: /mnt/blobfusecache
           
           # Persistent volume for Azure Blob Storage
           volumes:
             - name: blob-dataset
               persistentVolumeClaim:
                 claimName: blob-pvc
+            - name: app-code
+              configMap:
+                name: hpo-app-code
+                defaultMode: 0755
+            - name: cache-dir
+              emptyDir: {}

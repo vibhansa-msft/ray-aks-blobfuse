@@ -1,200 +1,157 @@
-# Ray Job Monitoring Script
-# Continuously checks Ray job status every 30 seconds until completion
+# Ray Job Monitoring Script - Simplified
+# Checks Ray job status every 30 seconds until completion or failure
 
 param(
     [string]$JobName = "hpo-job-gpu",
     [int]$CheckInterval = 30,
-    [int]$MaxWaitMinutes = 120
+    [int]$MaxInitializationChecks = 25
 )
 
 Write-Host "========== RAY JOB MONITORING ==========" -ForegroundColor Cyan
 Write-Host "Job Name: $JobName" -ForegroundColor Green
 Write-Host "Check Interval: $CheckInterval seconds" -ForegroundColor Green
-Write-Host "Max Wait Time: $MaxWaitMinutes minutes" -ForegroundColor Green
+Write-Host "Max Initialization Checks: $MaxInitializationChecks" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$maxWaitSeconds = $MaxWaitMinutes * 60
 $startTime = Get-Date
-$jobComplete = $false
 $checkCount = 0
-$failureCount = 0
-$maxFailures = 3
+$jobComplete = $false
+$initializationChecks = 0
 
 Write-Host "Starting job monitoring at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Yellow
 Write-Host ""
 
-# Initial check to verify job exists
+# Verify job exists
 Write-Host "Verifying Ray job exists..." -ForegroundColor Yellow
 $initialCheck = kubectl get rayjob $JobName -o yaml 2>$null
 if (-not $initialCheck) {
-    Write-Host ""
-    Write-Host "ERROR: Unable to retrieve Ray job details" -ForegroundColor Red
-    Write-Host "Job name: $JobName" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Possible reasons:" -ForegroundColor Yellow
-    Write-Host "  1. Job does not exist - verify with: kubectl get rayjob" -ForegroundColor Gray
-    Write-Host "  2. kubeconfig is not configured - check: kubectl get nodes" -ForegroundColor Gray
-    Write-Host "  3. Kubernetes cluster is not accessible" -ForegroundColor Gray
-    Write-Host ""
+    Write-Host "ERROR: Ray job '$JobName' not found" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Ray job found. Starting continuous monitoring..." -ForegroundColor Green
+Write-Host "Ray job found. Starting monitoring..." -ForegroundColor Green
 Write-Host ""
 
 while (-not $jobComplete) {
     $checkCount++
     $elapsedTime = (Get-Date) - $startTime
-    $elapsedSeconds = [int]$elapsedTime.TotalSeconds
-    $elapsedMinutes = [int]($elapsedSeconds / 60)
+    $elapsedMinutes = [int]($elapsedTime.TotalSeconds / 60)
+    $elapsedSeconds = [int]($elapsedTime.TotalSeconds % 60)
     
-    Write-Host "[$($elapsedMinutes)m $($elapsedSeconds % 60)s] Check #$checkCount" -ForegroundColor Cyan
+    Write-Host "[$($elapsedMinutes)m $($elapsedSeconds)s] Check #$checkCount" -ForegroundColor Cyan
     
     # Get RayJob status
     $rayJobOutput = kubectl get rayjob $JobName -o yaml 2>$null
     
     if (-not $rayJobOutput) {
-        $failureCount++
         Write-Host "  ERROR: Could not retrieve RayJob status" -ForegroundColor Red
-        Write-Host "  Consecutive failures: $failureCount / $maxFailures" -ForegroundColor Yellow
+        $jobComplete = $true
+        break
+    }
+    
+    # Extract deployment status
+    $deployStatus = ($rayJobOutput | Select-String "jobDeploymentStatus:" | Select-Object -First 1) -split ':' | Select-Object -Last 1
+    $deployStatus = $deployStatus.Trim()
+    
+    Write-Host "  Status: $deployStatus" -ForegroundColor White
+    
+    # Extract succeeded/failed counts
+    $succeeded = ($rayJobOutput | Select-String "succeeded:" | Select-Object -First 1) -split ':' | Select-Object -Last 1 | ForEach-Object { $_.Trim() }
+    $failed = ($rayJobOutput | Select-String "failed:" | Select-Object -First 1) -split ':' | Select-Object -Last 1 | ForEach-Object { $_.Trim() }
+    
+    if ($succeeded) { Write-Host "  Succeeded: $succeeded" -ForegroundColor Green }
+    if ($failed) { Write-Host "  Failed: $failed" -ForegroundColor Yellow }
+    
+    # Handle Initializing status
+    if ($deployStatus -eq "Initializing") {
+        $initializationChecks++
+        Write-Host "  Initializing: $initializationChecks/$MaxInitializationChecks" -ForegroundColor Yellow
         
-        if ($failureCount -ge $maxFailures) {
+        if ($initializationChecks -ge $MaxInitializationChecks) {
             Write-Host ""
-            Write-Host "FATAL: Unable to retrieve job status after $maxFailures consecutive attempts" -ForegroundColor Red
-            Write-Host "Stopping monitoring..." -ForegroundColor Yellow
+            Write-Host "ERROR: Job stuck in Initializing state for $MaxInitializationChecks checks" -ForegroundColor Red
+            Write-Host "Killing job and showing logs..." -ForegroundColor Yellow
+            Write-Host ""
+            
+            try {
+                kubectl delete rayjob $JobName 2>$null | Out-Null
+            } catch {}
+            
             $jobComplete = $true
             break
         }
     } else {
-        $failureCount = 0  # Reset failure counter on successful retrieval
+        $initializationChecks = 0  # Reset if not initializing
     }
     
-    if ($rayJobOutput) {
-        # Extract and display deployment status
-        $deployStatusLine = $rayJobOutput | Select-String "jobDeploymentStatus:" | Select-Object -First 1
-        if ($deployStatusLine) {
-            $deployStatus = ($deployStatusLine -split ':')[1].Trim()
-            Write-Host "  Deployment Status: $deployStatus" -ForegroundColor White
-        }
-        
-        # ===== CHECK IF JOB IS STUCK IN INITIALIZING =====
-        # After 25 checks (~12 minutes), if still initializing, kill all RayJobs
-        if ($deployStatus -eq "Initializing" -and $checkCount -eq 25) {
-            Write-Host ""
-            Write-Host "WARNING: RayJob still in Initializing state after 25 checks (approx 12 minutes)" -ForegroundColor Red
-            Write-Host "This indicates a resource scheduling problem (likely not enough capacity)" -ForegroundColor Yellow
-            Write-Host "Killing all RayJobs to free resources..." -ForegroundColor Red
-            Write-Host ""
-            
-            try {
-                kubectl delete rayjob --all 2>$null | Out-Null
-                Write-Host "All RayJobs deleted successfully" -ForegroundColor Green
-                Write-Host ""
-                Write-Host "Recommendations:" -ForegroundColor Yellow
-                Write-Host "  1. Reduce WORKER_REPLICAS in .env.example" -ForegroundColor Gray
-                Write-Host "  2. Reduce NUM_WORKERS in .env.example" -ForegroundColor Gray
-                Write-Host "  3. Increase NodeCount in .env.example" -ForegroundColor Gray
-                Write-Host "  4. Check node resource availability: kubectl top nodes" -ForegroundColor Gray
-                Write-Host ""
-                $jobComplete = $true
-                break
-            } catch {
-                Write-Host "Failed to delete RayJobs: $_" -ForegroundColor Red
-                $jobComplete = $true
-                break
-            }
-        }
-        
-        # Extract and display counts
-        $succeededLine = $rayJobOutput | Select-String "succeeded:" | Select-Object -First 1
-        $failedLine = $rayJobOutput | Select-String "failed:" | Select-Object -First 1
-        
-        if ($succeededLine) {
-            $succeededCount = ($succeededLine -split ':')[1].Trim()
-            Write-Host "  Succeeded: $succeededCount" -ForegroundColor Green
-        }
-        if ($failedLine) {
-            $failedCount = ($failedLine -split ':')[1].Trim()
-            Write-Host "  Failed: $failedCount" -ForegroundColor Yellow
-        }
-        
-        # Check pod status
-        Write-Host "  Checking Ray cluster pods..." -ForegroundColor White
+    # Show worker pods if job is running
+    if ($deployStatus -eq "Running") {
+        Write-Host "  Checking worker pods..." -ForegroundColor White
         try {
             $pods = kubectl get pods -l ray.io/job-name=$JobName --no-headers 2>&1 | Where-Object { $_ -notmatch "No resources found" }
             if ($pods) {
-                $podArray = @($pods)
-                $totalPods = $podArray.Count
-                Write-Host "    Total: $totalPods pods" -ForegroundColor White
-                
+                $podCount = @($pods).Count
                 $running = ($pods | Select-String "Running" | Measure-Object).Count
                 $pending = ($pods | Select-String "Pending" | Measure-Object).Count
-                $failed = ($pods | Select-String "Failed" | Measure-Object).Count
-                $succeeded = ($pods | Select-String "Succeeded" | Measure-Object).Count
                 
-                if ($running -gt 0) { Write-Host "    Running: $running" -ForegroundColor Green }
-                if ($pending -gt 0) { Write-Host "    Pending: $pending" -ForegroundColor Yellow }
-                if ($failed -gt 0) { Write-Host "    Failed: $failed" -ForegroundColor Red }
-                if ($succeeded -gt 0) { Write-Host "    Succeeded: $succeeded" -ForegroundColor Green }
-            } else {
-                Write-Host "    No pods found yet (job still initializing)" -ForegroundColor Gray
+                Write-Host "    Pods - Total: $podCount, Running: $running, Pending: $pending" -ForegroundColor Cyan
             }
-        } catch {
-            Write-Host "    Unable to fetch pod status" -ForegroundColor Gray
-        }
-        
-        # Check if job is complete
-        if ($deployStatus -eq "Complete" -or $deployStatus -eq "Failed") {
-            $jobComplete = $true
-            Write-Host ""
-            if ($deployStatus -eq "Complete") {
-                Write-Host "JOB COMPLETED SUCCESSFULLY" -ForegroundColor Green
-            } else {
-                Write-Host "JOB FAILED" -ForegroundColor Red
-            }
-        }
-    } else {
-        Write-Host "  Could not retrieve RayJob status" -ForegroundColor Yellow
+        } catch {}
     }
     
-    # Check timeout
-    if ($elapsedSeconds -ge $maxWaitSeconds) {
+    # Check if job is complete or failed
+    if ($deployStatus -eq "Complete") {
         Write-Host ""
-        Write-Host "TIMEOUT: Max wait time reached" -ForegroundColor Yellow
+        Write-Host "JOB COMPLETED SUCCESSFULLY" -ForegroundColor Green
         $jobComplete = $true
-    } else {
-        if (-not $jobComplete) {
-            Write-Host ""
-            Start-Sleep -Seconds $CheckInterval
-        }
+    } elseif ($deployStatus -eq "Failed") {
+        Write-Host ""
+        Write-Host "JOB FAILED" -ForegroundColor Red
+        $jobComplete = $true
+    }
+    
+    if (-not $jobComplete) {
+        Write-Host ""
+        Start-Sleep -Seconds $CheckInterval
     }
 }
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Monitoring Complete" -ForegroundColor Green
-Write-Host "Total elapsed time: $([int]$elapsedTime.TotalMinutes)m $($elapsedTime.Seconds)s" -ForegroundColor White
+
+# Calculate final timing
+$finalTime = (Get-Date) - $startTime
+$totalMinutes = [int]($finalTime.TotalSeconds / 60)
+$totalSeconds = [int]($finalTime.TotalSeconds % 60)
+
+Write-Host "Total Time: $($totalMinutes)m $($totalSeconds)s" -ForegroundColor White
 Write-Host ""
 
-# Final status
-Write-Host "Final Job Status:" -ForegroundColor Cyan
-$finalStatus = kubectl get rayjob $JobName -o yaml 2>$null | Select-String "jobDeploymentStatus:|succeeded:|failed:"
+# Get final status
+$finalStatus = kubectl get rayjob $JobName -o yaml 2>$null
 if ($finalStatus) {
-    $finalStatus
-} else {
-    Write-Host "Unable to retrieve final job status" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Job may have been deleted or cluster is unreachable." -ForegroundColor Gray
-    Write-Host "Use these commands to verify:" -ForegroundColor White
-    Write-Host "  kubectl get rayjob" -ForegroundColor Gray
-    Write-Host "  kubectl get nodes" -ForegroundColor Gray
+    $finalDeployStatus = ($finalStatus | Select-String "jobDeploymentStatus:" | Select-Object -First 1) -split ':' | Select-Object -Last 1 | ForEach-Object { $_.Trim() }
+    $finalSucceeded = ($finalStatus | Select-String "succeeded:" | Select-Object -First 1) -split ':' | Select-Object -Last 1 | ForEach-Object { $_.Trim() }
+    $finalFailed = ($finalStatus | Select-String "failed:" | Select-Object -First 1) -split ':' | Select-Object -Last 1 | ForEach-Object { $_.Trim() }
+    
+    Write-Host "Final Status: $finalDeployStatus" -ForegroundColor Cyan
+    if ($finalSucceeded) { Write-Host "Completed Tasks: $finalSucceeded" -ForegroundColor Green }
+    if ($finalFailed) { Write-Host "Failed Tasks: $finalFailed" -ForegroundColor Red }
 }
 
-Write-Host ""
-Write-Host "Useful Commands:" -ForegroundColor Yellow
-Write-Host "  kubectl get rayjob $JobName -o yaml" -ForegroundColor Gray
-Write-Host "  kubectl logs -l ray.io/job-name=$JobName -f" -ForegroundColor Gray
-Write-Host "  kubectl get pods -l ray.io/job-name=$JobName" -ForegroundColor Gray
+# Show logs if job failed or couldn't initialize
+if ($deployStatus -ne "Complete" -or $initializationChecks -ge $MaxInitializationChecks) {
+    Write-Host ""
+    Write-Host "========== JOB LOGS ==========" -ForegroundColor Yellow
+    Write-Host ""
+    
+    try {
+        kubectl logs -l ray.io/job-name=$JobName --all-containers=true --timestamps=true 2>&1 | Select-Object -Last 100
+    } catch {
+        Write-Host "Unable to retrieve logs" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan

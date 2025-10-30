@@ -13,12 +13,9 @@ parameters:
   mountWithWorkloadIdentityToken: "true"
 
 mountOptions:
+  - -o allow_other
   - --file-cache-timeout-in-seconds=120
   - --tmp-path=/mnt/blobfusecache
-  - -o allow_other
-  - --log-level=LOG_DEBUG
-  - --log-type=base
-  - --log-file-path=/home/ray/blobfuse.log
 
 allowVolumeExpansion: true
 reclaimPolicy: Retain

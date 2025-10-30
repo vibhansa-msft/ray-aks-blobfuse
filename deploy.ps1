@@ -15,18 +15,26 @@ foreach ($t in @("az","kubectl","helm","docker","python")) { Need $t }
 
 # ========== AZURE AUTHENTICATION ==========
 
-# Prompt for Azure subscription and login if not already logged in
-Write-Host "Azure login..."
-try {
-  az account show | Out-Null
-  Write-Host "Already logged in to Azure."
-} catch {
+# Check and perform Azure authentication if needed
+Write-Host "Checking Azure authentication..."
+$loginCheck = az account show 2>&1
+if ($LASTEXITCODE -ne 0 -or -not $loginCheck) {
   Write-Host "Not logged in. Running az login..."
   az login | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Azure login failed" -ForegroundColor Red
+    exit 1
+  }
+} else {
+  Write-Host "Already logged in to Azure."
 }
 
 Write-Host "Setting Azure subscription to $SUBSCRIPTION..."
-az account set --subscription $SUBSCRIPTION | Out-Null
+az account set --subscription $SUBSCRIPTION
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "ERROR: Failed to set subscription $SUBSCRIPTION" -ForegroundColor Red
+  exit 1
+}
 
 # ========== CLEANUP RUNNING JOBS ==========
 
@@ -51,6 +59,29 @@ if ($rgExists) {
     az group create -n $RG -l $LOC | Out-Null
 }
 
+# ===== AKS Cluster =====
+Write-Host "Setting up AKS cluster with infrastructure based on GPU flag..."
+
+# Convert GPU to boolean if it's a string
+$gpuEnabled = if ($GPU -is [bool]) { $GPU } else { [System.Convert]::ToBoolean($GPU) }
+
+# Call the dedicated AKS setup script
+& "$PSScriptRoot\setup-aks.ps1" `
+    -ResourceGroup $RG `
+    -ClusterName $AKS `
+    -Location $LOC `
+    -EnableGpu $gpuEnabled `
+    -NodeCount $NodeCount `
+    -VmType $VmType `
+    -StorageAccountName $SA `
+    -StorageAccountResourceGroup $RG
+
+# Check if setup-aks.ps1 failed
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: AKS setup script failed with exit code $LASTEXITCODE" -ForegroundColor Red
+    exit 1
+}
+
 # ===== Storage Account =====
 Write-Host "Checking if Storage Account $SA exists..."
 $saExists = $false
@@ -67,36 +98,10 @@ try {
 if (-not $saExists) {
     Write-Host "Creating Storage Account $SA..."
     az storage account create -g $RG -n $SA -l $LOC --sku Standard_LRS | Out-Null
-}
 
-# ===== Assign Managed Identity Roles to Storage Account =====
-Write-Host "Assigning AKS managed identity roles to storage account..."
-try {
-    # Get the AKS cluster's system-assigned managed identity principal ID
-    $aksPrincipalId = az aks show -g $RG -n $AKS --query "identity.principalId" -o tsv 2>$null
-    
-    if ($aksPrincipalId) {
-        # Get the storage account resource ID
-        $saResourceId = az storage account show -g $RG -n $SA --query "id" -o tsv 2>$null
-        
-        if ($saResourceId) {
-            # Assign "Storage Account Contributor" role
-            Write-Host "Assigning 'Storage Account Contributor' role..."
-            az role assignment create --role "Storage Account Contributor" --assignee $aksPrincipalId --scope $saResourceId 2>$null | Out-Null
-            
-            # Assign "Storage Blob Data Contributor" role
-            Write-Host "Assigning 'Storage Blob Data Contributor' role..."
-            az role assignment create --role "Storage Blob Data Contributor" --assignee $aksPrincipalId --scope $saResourceId 2>$null | Out-Null
-            
-            Write-Host "Role assignments completed successfully." -ForegroundColor Green
-        } else {
-            Write-Host "Warning: Could not get storage account resource ID. Role assignments skipped." -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host "Warning: Could not get AKS managed identity principal ID. Role assignments skipped." -ForegroundColor Yellow
-    }
-} catch {
-    Write-Host "Warning: Failed to assign roles to storage account. Continuing..." -ForegroundColor Yellow
+    # Terminate the script now and ask user to manually assign the roles
+    Write-Host "Please assign the 'Storage Blob Data Contributor and Storage Account Data Contributor' role to the AKS managed identity." -ForegroundColor Yellow
+    exit 1
 }
 
 # ===== Blob Container =====
@@ -117,20 +122,7 @@ if (-not $containerExists) {
     az storage container create --name $Container --account-name $SA --auth-mode login | Out-Null
 }
 
-# ===== AKS Cluster =====
-Write-Host "Setting up AKS cluster with infrastructure based on GPU flag..."
 
-# Convert GPU to boolean if it's a string
-$gpuEnabled = if ($GPU -is [bool]) { $GPU } else { [System.Convert]::ToBoolean($GPU) }
-
-# Call the dedicated AKS setup script
-& "$PSScriptRoot\setup-aks.ps1" `
-    -ResourceGroup $RG `
-    -ClusterName $AKS `
-    -Location $LOC `
-    -EnableGpu $gpuEnabled `
-    -NodeCount $NodeCount `
-    -VmType $VmType `
 
 # ========== KUBERNETES OPERATORS ==========
 
