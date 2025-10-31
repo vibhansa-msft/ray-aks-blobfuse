@@ -107,8 +107,8 @@ spec:
     - groupName: cpu-group
       replicas: __WORKER_REPLICAS__
       # Auto-scaling configuration (can scale down to 1, up to 100 replicas)
-      minReplicas: 1
-      maxReplicas: 100
+      # minReplicas: 1
+      # maxReplicas: 100
       template:
         spec:
           initContainers:

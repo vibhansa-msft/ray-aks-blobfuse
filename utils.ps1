@@ -33,8 +33,8 @@ function Load-EnvParameters {
     if (-not $GPU) { $GPU = $false }
     if (-not $NodeCount) { $NodeCount = 2 }
     if (-not $VmType) { $VmType = "Standard_D4_v2" }
-    if (-not $WORKER_REPLICAS) { $WORKER_REPLICAS = 6 }
-    if (-not $NUM_WORKERS) { $NUM_WORKERS = 8 }
+    if (-not $WORKER_REPLICAS) { $WORKER_REPLICAS = 4 }
+    if (-not $NUM_WORKERS) { $NUM_WORKERS = 4 }
 }
 
 # =====================================================

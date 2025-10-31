@@ -25,6 +25,8 @@ from ray.train import ScalingConfig, RunConfig
 import transformers
 import torch
 
+
+
 # ========== CONFIGURATION ==========
 
 # Directory for blob storage - mount point for Azure Blob storage (training data - read-only)
@@ -46,6 +48,29 @@ def load_parquet_ds(pattern: str):
         Ray Dataset materialized in memory for efficient access
     """
     files = glob.glob(pattern)
+    print(f"[DEBUG] Glob pattern: {pattern}")
+    print(f"[DEBUG] Files found: {len(files)}")
+    print(f"[DEBUG] Files: {files}")
+    
+    # If glob returns no files, print directory listing for debugging
+    if len(files) == 0:
+        base_dir = os.path.dirname(pattern)
+        print(f"[DEBUG] No files found! Listing directory: {base_dir}")
+        try:
+            dir_contents = os.listdir(base_dir)
+            print(f"[DEBUG] Directory contents: {dir_contents}")
+            # List subdirectories too
+            for item in dir_contents[:20]:  # Limit to first 20
+                item_path = os.path.join(base_dir, item)
+                if os.path.isdir(item_path):
+                    try:
+                        subdir_contents = os.listdir(item_path)
+                        print(f"[DEBUG] {item}/ contains {len(subdir_contents)} items: {subdir_contents[:5]}")
+                    except Exception as e:
+                        print(f"[DEBUG] Error listing {item}/: {e}")
+        except Exception as e:
+            print(f"[DEBUG] Error listing {base_dir}: {e}")
+    
     # Materialize dataset to ensure all data is available for training
     ds = ray.data.read_parquet(files, parallelism=min(200, max(1, len(files)))).materialize()
     return ds
@@ -67,6 +92,7 @@ def train_loop(config):
             - epochs: Number of training epochs
     """
     from ray import train
+    import socket
     
     # ===== Model Setup =====
     
@@ -212,8 +238,18 @@ def main():
     # Load training dataset from blob storage (read-only mount point)
     # The datasets PVC mounts the dataset container which has ag_news subdirectory
     print(f"Loading dataset from {DATA_DIR}/ag_news/...")
+    print(f"[DEBUG] Full mount point path: {DATA_DIR}")
+    print(f"[DEBUG] Looking for pattern: {DATA_DIR}/ag_news/train_*.parquet")
+    
+    # List what's at the mount point
     try:
-        train_ds = load_parquet_ds(f"{DATA_DIR}/ag_news/train_0001*.parquet")
+        mount_contents = os.listdir(DATA_DIR)
+        print(f"[DEBUG] Mount point contents: {mount_contents}")
+    except Exception as e:
+        print(f"[DEBUG] Error listing mount point: {e}")
+    
+    try:
+        train_ds = load_parquet_ds(f"{DATA_DIR}/ag_news/train_*.parquet")
         print(f"Dataset loaded successfully with {train_ds.count()} records")
     except Exception as e:
         print(f"Error loading dataset: {e}")
