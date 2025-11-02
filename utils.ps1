@@ -35,6 +35,12 @@ function Load-EnvParameters {
     if (-not $VmType) { $VmType = "Standard_D4_v2" }
     if (-not $WORKER_REPLICAS) { $WORKER_REPLICAS = 4 }
     if (-not $NUM_WORKERS) { $NUM_WORKERS = 4 }
+    
+    # Mount path defaults (if not in .env.example)
+    if (-not $DATA_DIR) { $DATA_DIR = "/mnt/blob/datasets" }
+    if (-not $CHECKPOINT_DIR) { $CHECKPOINT_DIR = "/mnt/blob/checkpoints" }
+    if (-not $APP_DIR) { $APP_DIR = "/app" }
+    if (-not $CACHE_DIR) { $CACHE_DIR = "/mnt/blobfusecache" }
 }
 
 # =====================================================

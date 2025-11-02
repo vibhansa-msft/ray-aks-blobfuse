@@ -146,10 +146,19 @@ if ($deployStatus -ne "Complete" -or $initializationChecks -ge $MaxInitializatio
     Write-Host "========== JOB LOGS ==========" -ForegroundColor Yellow
     Write-Host ""
     
-    try {
-        kubectl logs -l ray.io/job-name=$JobName --all-containers=true --timestamps=true 2>&1 | Select-Object -Last 100
-    } catch {
-        Write-Host "Unable to retrieve logs" -ForegroundColor Yellow
+    # Try to get logs using job label first
+    $logOutput = kubectl logs -l "ray.io/job-name=$JobName" --all-containers=true --timestamps=true 2>&1
+    if ($LASTEXITCODE -eq 0 -and $logOutput -and $logOutput -notlike "*No resources found*") {
+        $logOutput | Select-Object -Last 100
+    } else {
+        # Fallback: try to get logs from completed job pods
+        Write-Host "Job-specific logs not available. Checking for completed job pods..." -ForegroundColor Gray
+        $jobPods = kubectl get pods -l "ray.io/cluster-name" --field-selector=status.phase=Succeeded -o name 2>$null
+        if ($jobPods) {
+            kubectl logs $jobPods[0] --all-containers=true --timestamps=true 2>&1 | Select-Object -Last 50
+        } else {
+            Write-Host "No log pods available. Job may have been cleaned up." -ForegroundColor Yellow
+        }
     }
 }
 

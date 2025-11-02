@@ -1,0 +1,33 @@
+# ========== RAY DASHBOARD SERVICE ==========
+# This service exposes the Ray dashboard for monitoring Ray clusters
+# The dashboard provides real-time insights into:
+#   - Cluster resource usage (CPU, memory, GPU)
+#   - Job status and logs
+#   - Task execution timeline
+#   - Actor and object store metrics
+#   - Performance profiling data
+
+apiVersion: v1
+kind: Service
+
+# ========== METADATA ==========
+
+metadata:
+  name: ray-dashboard-service
+  labels:
+    app: ray
+    component: dashboard
+
+# ========== SERVICE SPECIFICATION ==========
+
+spec:
+  type: LoadBalancer
+  ports:
+    - name: dashboard
+      port: 8265
+      targetPort: 8265
+      protocol: TCP
+  selector:
+    # This selector matches the Ray head node
+    ray.io/node-type: head
+    ray.io/cluster: hpo-job-cpu

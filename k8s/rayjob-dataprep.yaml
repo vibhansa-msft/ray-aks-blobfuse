@@ -1,14 +1,12 @@
-# ========== RAY HPO JOB (GPU) ==========
-# This RayJob specification configures a distributed Ray cluster for GPU-accelerated
-# hyperparameter optimization of the DistilBERT model on the AG News dataset.
+# ========== RAY DATA PREPARATION JOB ==========
+# This RayJob specification configures a Ray cluster for data preparation tasks
+# Designed to run various data preparation scripts (prepare_data.py)
 #
 # Key features:
-#   - GPU worker nodes for accelerated training
-#   - Distributed Ray cluster with head and worker nodes
-#   - Azure Blob Storage integration via Blobfuse2 mount
-#   - Object spilling for memory-intensive operations
-#   - GPU node affinity via taints and tolerations
-#   - Standard Ray 2.50.0 GPU image with CUDA support
+#   - CPU-only worker nodes optimized for data processing
+#   - Azure Blob Storage integration for data output
+#   - Distributed Ray cluster for parallel data processing
+#   - Flexible dataset download and Parquet conversion
 
 apiVersion: ray.io/v1
 kind: RayJob
@@ -16,34 +14,31 @@ kind: RayJob
 # ========== METADATA ==========
 
 metadata:
-  name: hpo-job-gpu
+  name: data-prep-job
 
 # ========== RAY JOB SPECIFICATION ==========
 
 spec:
   # ===== Job Configuration =====
   
-  # Entry point command executed on Ray job submit
-  entrypoint: "python /app/train_hpo.py"
+  # Entry point command - can be customized for different datasets
+  entrypoint: "python /app/prepare_data.py"
 
   # Runtime environment variables and dependencies
   runtimeEnvYAML: |
     pip:
-      - torch==2.1.0
-      - transformers==4.36.0
       - datasets==2.16.0
       - pyarrow==14.0.0
+      - transformers==4.36.0
     env_vars:
       DATA_DIR: "__DATA_DIR__"
       CHECKPOINT_DIR: "__CHECKPOINT_DIR__"
-      NUM_WORKERS: "__NUM_WORKERS__"
-      NUM_SAMPLES: "12"
       PYTHONPATH: "__APP_DIR__"
 
   # ========== RAY CLUSTER SPECIFICATION ==========
 
   rayClusterSpec:
-    # Ray version - uses official Ray GPU image from Docker Hub
+    # Ray version - uses official Ray image from Docker Hub
     rayVersion: "2.50.0"
 
     # ===== HEAD NODE CONFIGURATION =====
@@ -67,8 +62,8 @@ spec:
                 mountPath: /mnt
           containers:
           - name: ray-head
-            # Standard Ray GPU image with CUDA support
-            image: rayproject/ray:2.50.0-gpu
+            # Standard Ray image with Python support
+            image: rayproject/ray:2.50.0
             
             # Ray object spilling configuration for memory management
             env:
@@ -76,11 +71,10 @@ spec:
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
             
-            # Mount Azure Blob Storage for dataset and checkpoints
+            # Mount Azure Blob Storage for dataset output
             volumeMounts:
               - name: blob-dataset
                 mountPath: "__DATA_DIR__"
-                readOnly: true
               - name: blob-checkpoints
                 mountPath: "__CHECKPOINT_DIR__"
               - name: app-code
@@ -93,7 +87,6 @@ spec:
             - name: blob-dataset
               persistentVolumeClaim:
                 claimName: blob-pvc-dataset
-                readOnly: true
             - name: blob-checkpoints
               persistentVolumeClaim:
                 claimName: blob-pvc-checkpoint
@@ -104,12 +97,12 @@ spec:
             - name: cache-dir
               emptyDir: {}
 
-    # ===== GPU WORKER NODES CONFIGURATION =====
-    # Worker nodes that execute distributed training tasks
+    # ===== CPU WORKER NODES CONFIGURATION =====
+    # Worker nodes optimized for data processing tasks
     
     workerGroupSpecs:
-    - groupName: gpu-group
-      replicas: __WORKER_REPLICAS__
+    - groupName: data-workers
+      replicas: 3
       template:
         spec:
           initContainers:
@@ -119,23 +112,10 @@ spec:
             volumeMounts:
               - name: cache-dir
                 mountPath: /mnt
-          # GPU node selection via tolerations
-          # Tolerates the gpu:NoSchedule taint set on GPU node pools
-          tolerations:
-          - key: "sku"
-            operator: "Equal"
-            value: "gpu"
-            effect: "NoSchedule"
-          
           containers:
           - name: ray-worker
-            # Standard Ray GPU image with CUDA support
-            image: rayproject/ray:2.50.0-gpu
-            
-            # GPU resource requirements (1 GPU per worker pod)
-            resources:
-              limits:
-                nvidia.com/gpu: "1"
+            # Standard Ray image with Python support
+            image: rayproject/ray:2.50.0
             
             # Ray object spilling for memory management
             env:
@@ -143,11 +123,10 @@ spec:
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
             
-            # Mount Azure Blob Storage for dataset and checkpoints
+            # Mount Azure Blob Storage for dataset output
             volumeMounts:
               - name: blob-dataset
                 mountPath: "__DATA_DIR__"
-                readOnly: true
               - name: blob-checkpoints
                 mountPath: "__CHECKPOINT_DIR__"
               - name: app-code
@@ -160,7 +139,6 @@ spec:
             - name: blob-dataset
               persistentVolumeClaim:
                 claimName: blob-pvc-dataset
-                readOnly: true
             - name: blob-checkpoints
               persistentVolumeClaim:
                 claimName: blob-pvc-checkpoint
