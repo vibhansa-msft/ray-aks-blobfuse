@@ -83,7 +83,7 @@ $saExists = $false
 try {
     $saResult = az storage account show -g $RG -n $SA --query "name" -o tsv 2>$null
     if ($saResult) {
-        $saExRGists = $true
+        $saExists = $true
         Write-Host "Storage Account $SA already exists. Skipping creation." -ForegroundColor Green
     }
 } catch {

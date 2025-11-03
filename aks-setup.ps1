@@ -58,8 +58,11 @@ if (-not $aksExists) {
     az aks create `
         -g $ResourceGroup `
         -n $ClusterName `
-        --node-count $NodeCount `
         --node-vm-size $VmType `
+        --enable-cluster-autoscaler `
+        --node-count 2 `
+        --min-count 2 `
+        --max-count $NodeCount `
         --enable-managed-identity `
         --enable-blob-driver | Out-Null
         

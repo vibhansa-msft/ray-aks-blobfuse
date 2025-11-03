@@ -1,0 +1,609 @@
+# ========== MONITORING STACK DEPLOYMENT ==========
+# Consolidated Prometheus + Grafana + Ray Dashboard configuration
+# Provides comprehensive monitoring for Ray clusters on AKS
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+
+---
+# ========== PROMETHEUS CONFIGURATION ==========
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Ray Head Node Metrics
+      - job_name: 'ray-head'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+              - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_ray_io_node_type]
+            action: keep
+            regex: head
+          - source_labels: [__address__]
+            action: replace
+            regex: '([^:]+):.*'
+            target_label: __address__
+            replacement: '${1}:8080'  # Ray metrics port
+
+      # Ray Worker Node Metrics  
+      - job_name: 'ray-workers'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+              - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_ray_io_node_type]
+            action: keep
+            regex: worker
+          - source_labels: [__address__]
+            action: replace
+            regex: '([^:]+):.*'
+            target_label: __address__
+            replacement: '${1}:8080'  # Ray metrics port
+
+      # Kubernetes Pod Metrics
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+
+---
+# ========== PROMETHEUS DEPLOYMENT ==========
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.47.0
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=200h'
+          - '--web.enable-lifecycle'
+        ports:
+        - containerPort: 9090
+        resources:
+          requests:
+            cpu: 200m
+            memory: 1000Mi
+          limits:
+            cpu: 1000m
+            memory: 2000Mi
+        volumeMounts:
+        - name: prometheus-config-volume
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage-volume
+          mountPath: /prometheus/
+      volumes:
+      - name: prometheus-config-volume
+        configMap:
+          defaultMode: 420
+          name: prometheus-config
+      - name: prometheus-storage-volume
+        emptyDir: {}
+
+---
+# ========== PROMETHEUS SERVICE ==========
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: monitoring
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '9090'
+spec:
+  selector:
+    app: prometheus
+  type: ClusterIP
+  ports:
+    - port: 9090
+      targetPort: 9090
+
+---
+# ========== PROMETHEUS SERVICE ACCOUNT & RBAC ==========
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: monitoring
+
+---
+# ========== GRAFANA DATASOURCES ==========
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  prometheus.yaml: |-
+    {
+        "apiVersion": 1,
+        "datasources": [
+            {
+               "access":"proxy",
+                "editable": true,
+                "name": "prometheus",
+                "orgId": 1,
+                "type": "prometheus",
+                "url": "http://prometheus-service.monitoring.svc:9090",
+                "version": 1
+            }
+        ]
+    }
+
+---
+# ========== GRAFANA DASHBOARD PROVIDER & DASHBOARDS ==========
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-providers
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'Default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+data:
+  ray-cluster.json: |
+    {
+      "id": null,
+      "uid": "ray-cluster-monitoring",
+      "title": "Ray Cluster Monitoring",
+      "description": "Comprehensive monitoring for Ray distributed computing cluster",
+      "tags": ["ray", "distributed-computing", "kubernetes"],
+      "style": "dark",
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {
+        "from": "now-2h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Active Ray Nodes",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "count(up{job=~\"ray-.*\"})",
+              "legendFormat": "Active Nodes",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "unit": "short",
+              "thresholds": {
+                "steps": [
+                  {"color": "red", "value": 0},
+                  {"color": "yellow", "value": 1},
+                  {"color": "green", "value": 2}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "Total CPU Usage",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(rate(process_cpu_seconds_total{job=~\"ray-.*\"}[5m]))",
+              "legendFormat": "Total CPU",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "unit": "percentunit",
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": 0},
+                  {"color": "yellow", "value": 0.7},
+                  {"color": "red", "value": 0.9}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "Avg Memory Usage",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "avg(process_resident_memory_bytes{job=~\"ray-.*\"})",
+              "legendFormat": "Avg Memory",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "unit": "bytes",
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": 0},
+                  {"color": "yellow", "value": 1073741824},
+                  {"color": "red", "value": 2147483648}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+        },
+        {
+          "id": 4,
+          "title": "Network Ingress",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(process_network_io_counters_bytes_recv{job=~\"ray-.*\"}[5m]))",
+              "legendFormat": "Ingress",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "lineInterpolation": "smooth",
+                "hideFrom": {"tooltip": false, "viz": false, "legend": false}
+              },
+              "min": 0
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "table", "values": ["current", "max"]},
+            "alertThreshold": true
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+        },
+        {
+          "id": 5,
+          "title": "Network Egress",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(process_network_io_counters_bytes_sent{job=~\"ray-.*\"}[5m]))",
+              "legendFormat": "Egress",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "lineInterpolation": "smooth",
+                "hideFrom": {"tooltip": false, "viz": false, "legend": false}
+              },
+              "min": 0
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "table", "values": ["current", "max"]},
+            "alertThreshold": true
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+        },
+        {
+          "id": 6,
+          "title": "Ray Job Progress",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(ray_tasks_finished_total[5m])",
+              "legendFormat": "Tasks/sec",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "lineInterpolation": "smooth",
+                "hideFrom": {"tooltip": false, "viz": false, "legend": false}
+              },
+              "min": 0
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "table", "values": ["current", "max"]},
+            "alertThreshold": true
+          },
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12}
+        },
+        {
+          "id": 7,
+          "title": "Ray Cache Usage",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "ray_object_store_memory_used_bytes",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "lineInterpolation": "smooth",
+                "hideFrom": {"tooltip": false, "viz": false, "legend": false}
+              },
+              "min": 0
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "table", "values": ["current", "max"]},
+            "alertThreshold": true
+          },
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20}
+        },
+        {
+          "id": 8,
+          "title": "Avg Memory Usage per Node",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=~\"ray-.*\"}",
+              "legendFormat": "{{job}} - {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "lineInterpolation": "smooth",
+                "hideFrom": {"tooltip": false, "viz": false, "legend": false}
+              },
+              "min": 0
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "table", "values": ["current", "max"]},
+            "alertThreshold": true
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28}
+        },
+        {
+          "id": 9,
+          "title": "Avg CPU Usage per Node",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(process_cpu_seconds_total{job=~\"ray-.*\"}[5m])",
+              "legendFormat": "{{job}} - {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "lineInterpolation": "smooth",
+                "hideFrom": {"tooltip": false, "viz": false, "legend": false}
+              },
+              "min": 0,
+              "max": 1
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "table", "values": ["current", "max"]},
+            "alertThreshold": true
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28}
+        }
+      ]
+    }
+
+---
+# ========== GRAFANA DEPLOYMENT ==========
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.2.0
+        ports:
+        - name: grafana
+          containerPort: 3000
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+          requests:
+            memory: 500M
+            cpu: "500m"
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: raymonitoring123
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_PATHS_PROVISIONING
+          value: /etc/grafana/provisioning
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-datasources
+        - mountPath: /etc/grafana/provisioning/dashboards
+          name: grafana-dashboard-providers
+        - mountPath: /var/lib/grafana/dashboards
+          name: grafana-dashboards
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboard-providers
+        configMap:
+          name: grafana-dashboard-providers
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards
+
+---
+# ========== GRAFANA SERVICE ==========
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: monitoring
+spec:
+  selector:
+    app: grafana
+  type: LoadBalancer
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+---
+# ========== RAY METRICS SERVICE ==========
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ray-metrics
+  namespace: default
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8080'
+spec:
+  selector:
+    ray.io/node-type: head
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080

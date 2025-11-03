@@ -63,6 +63,13 @@ spec:
           - name: setup-blobfuse-cache
             image: busybox:1.28
             command: ['mkdir', '-p', '__CACHE_DIR__']
+            resources:
+              requests:
+                cpu: "100m"
+                memory: "128Mi"
+              limits:
+                cpu: "200m"
+                memory: "256Mi"
             volumeMounts:
               - name: cache-dir
                 mountPath: /mnt
@@ -70,6 +77,15 @@ spec:
           - name: ray-head
             # Standard Ray image with Python support
             image: rayproject/ray:2.50.0
+            
+            # Resource requests for proper scheduling and autoscaling
+            resources:
+              requests:
+                cpu: "4000m"      # 4 CPU cores for head node
+                memory: "8Gi"     # 8GB memory for head node
+              limits:
+                cpu: "8000m"      # Max 8 CPU cores
+                memory: "16Gi"    # Max 16GB memory
             
             # Ray object spilling configuration for memory management
             env:
@@ -121,6 +137,13 @@ spec:
           - name: setup-blobfuse-cache
             image: busybox:1.28
             command: ['mkdir', '-p', '__CACHE_DIR__']
+            resources:
+              requests:
+                cpu: "100m"
+                memory: "128Mi"
+              limits:
+                cpu: "200m"
+                memory: "256Mi"
             volumeMounts:
               - name: cache-dir
                 mountPath: /mnt
@@ -128,6 +151,15 @@ spec:
           - name: ray-worker
             # Standard Ray image with Python support
             image: rayproject/ray:2.50.0
+            
+            # Resource requests for proper scheduling and autoscaling
+            resources:
+              requests:
+                cpu: "10000m"     # 10 CPU cores per worker (Standard_D48ds_v5 has 48 cores)
+                memory: "32Gi"    # 32GB memory per worker
+              limits:
+                cpu: "12000m"     # Max 12 CPU cores per worker
+                memory: "40Gi"    # Max 40GB memory per worker
             
             # Ray object spilling for memory management
             env:

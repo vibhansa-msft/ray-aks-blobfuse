@@ -11,7 +11,7 @@ Write-Host "===============================" -ForegroundColor Cyan
 
 # Deploy the monitoring stack
 Write-Host "Deploying Grafana + Prometheus monitoring stack..." -ForegroundColor Yellow
-kubectl apply -f k8s/grafana-monitoring.yaml | Out-Null
+kubectl apply -f k8s/monitoring/monitoring-stack.yaml | Out-Null
 
 Write-Host "Waiting for monitoring services to be ready..." -ForegroundColor Gray
 
@@ -96,35 +96,10 @@ Write-Host "   • Memory, CPU, and GPU utilization" -ForegroundColor White
 Write-Host "   • Task scheduling and worker status" -ForegroundColor White
 Write-Host ""
 
-# Import Ray dashboard if available
-if (Test-Path "grafana-ray-dashboard.json") {
-    Write-Host "📊 Importing Ray dashboard..." -ForegroundColor Yellow
-    try {
-        # Wait a bit for Grafana to be fully ready
-        Start-Sleep -Seconds 5
-        
-        $dashboardJson = Get-Content "grafana-ray-dashboard.json" -Raw
-        $importPayload = @{
-            dashboard = ($dashboardJson | ConvertFrom-Json).dashboard
-            overwrite = $true
-            inputs = @()
-        } | ConvertTo-Json -Depth 20
-        
-        $headers = @{
-            'Authorization' = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("admin:raymonitoring123"))
-            'Content-Type' = 'application/json'
-        }
-        
-        # Use appropriate URL based on access method
-        $apiUrl = if ($grafanaURL -like "*localhost*") { "http://localhost:3000/api/dashboards/import" } else { "$grafanaURL/api/dashboards/import" }
-        
-        Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $importPayload
-        Write-Host "✅ Ray dashboard imported successfully!" -ForegroundColor Green
-    }
-    catch {
-        Write-Host "⚠️  Dashboard import failed, you can import manually: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-}
+Write-Host ""
+Write-Host "Dashboards are pre-configured and auto-provisioned in Grafana." -ForegroundColor Green
+Write-Host "No manual import needed - they will appear automatically in the Dashboards section." -ForegroundColor Green
+Write-Host ""
 
 Write-Host "🚀 Next Steps:" -ForegroundColor Green
 Write-Host "   1. Access Grafana dashboard" -ForegroundColor Gray

@@ -26,7 +26,7 @@ Write-Host "Deploying data preparation RayJob..."
 $dataprepYaml = Get-Content "k8s/rayjob-dataprep.yaml" -Raw
 
 # Substitute placeholder tokens with actual paths (from .env.example)
-$dataprepYaml = $dataprepYaml -replace "__DATA_DIR__", $DATA_DIR -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR -replace "__APP_DIR__", $APP_DIR -replace "__CACHE_DIR__", $CACHE_DIR
+$dataprepYaml = $dataprepYaml -replace "__DATA_DIR__", $DATA_DIR -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR -replace "__APP_DIR__", $APP_DIR -replace "__CACHE_DIR__", $CACHE_DIR -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS -replace "__NUM_WORKERS__", $NUM_WORKERS
 
 # Apply the processed YAML
 $dataprepYaml | kubectl apply -f - | Out-Null
