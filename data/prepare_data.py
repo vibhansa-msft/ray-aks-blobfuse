@@ -28,6 +28,9 @@ def process_arrow_file(arrow_file_path, output_path):
     arrow_filename = Path(arrow_file_path).stem
     print(f"Worker processing arrow file: {Path(arrow_file_path).name}")
     
+    # Get source arrow file size
+    arrow_file_size_mb = os.path.getsize(arrow_file_path) / (1024 * 1024)
+    
     start_time = time.time()
     
     # Read arrow file using pyarrow.memory_map and deserialize
@@ -46,14 +49,17 @@ def process_arrow_file(arrow_file_path, output_path):
     pq.write_table(table, output_file)
     
     elapsed_time = time.time() - start_time
-    file_size_mb = os.path.getsize(output_file) / (1024 * 1024)
+    parquet_file_size_mb = os.path.getsize(output_file) / (1024 * 1024)
+    compression_ratio = (1 - parquet_file_size_mb / arrow_file_size_mb) * 100 if arrow_file_size_mb > 0 else 0
     
-    print(f"Converted {Path(arrow_file_path).name} ({len(table)} rows, {file_size_mb:.2f}MB) in {elapsed_time:.2f}s\n")
+    print(f"Converted {Path(arrow_file_path).name} ({len(table)} rows, Arrow: {arrow_file_size_mb:.2f}MB -> Parquet: {parquet_file_size_mb:.2f}MB, Compression: {compression_ratio:.1f}%) in {elapsed_time:.2f}s")
     
     return {
         "file": Path(arrow_file_path).name,
         "rows": len(table),
-        "size_mb": file_size_mb,
+        "arrow_size_mb": arrow_file_size_mb,
+        "parquet_size_mb": parquet_file_size_mb,
+        "compression_ratio": compression_ratio,
         "time_seconds": elapsed_time
     }
 
@@ -97,31 +103,40 @@ def preprocess_data(raw_dataset_path, output_path):
     total_time = time.time() - total_start_time
     
     # Print statistics
-    print("\n" + "="*80)
+    print("\n" + "="*100)
     print("CONVERSION STATISTICS")
-    print("="*80)
+    print("="*100)
     
     total_rows = 0
-    total_size_mb = 0
+    total_arrow_mb = 0
+    total_parquet_mb = 0
+    total_processing_time = 0  # Sum of individual file processing times
     
     for i, result in enumerate(results, 1):
         rows = result["rows"]
-        size_mb = result["size_mb"]
+        arrow_mb = result["arrow_size_mb"]
+        parquet_mb = result["parquet_size_mb"]
         time_sec = result["time_seconds"]
-        throughput_mb_per_sec = size_mb / time_sec if time_sec > 0 else 0
+        compression = result["compression_ratio"]
         
-        print(f"{i:2d}. {result['file']:25s} | {rows:>8,} rows | {size_mb:>8.2f}MB | {time_sec:>6.2f}s | {throughput_mb_per_sec:>7.2f}MB/s")
+        print(f"{i:2d}. {result['file']:25s} | {rows:>8,} rows | Arrow: {arrow_mb:>7.2f}MB | Parquet: {parquet_mb:>7.2f}MB | Compression: {compression:>5.1f}% | {time_sec:>6.2f}s")
         
         total_rows += rows
-        total_size_mb += size_mb
+        total_arrow_mb += arrow_mb
+        total_parquet_mb += parquet_mb
+        total_processing_time += time_sec
     
-    avg_time_per_file = total_time / len(results) if results else 0
-    overall_throughput = total_size_mb / total_time if total_time > 0 else 0
+    avg_time_per_file = total_processing_time / len(results) if results else 0
+    total_compression = (1 - total_parquet_mb / total_arrow_mb) * 100 if total_arrow_mb > 0 else 0
+    overall_throughput = total_parquet_mb / total_time if total_time > 0 else 0
     
-    print("="*80)
-    print(f"TOTAL: {len(results)} files | {total_rows:,} rows | {total_size_mb:.2f}MB | {total_time:.2f}s | {overall_throughput:.2f}MB/s")
+    print("="*100)
+    print(f"TOTAL: {len(results)} files | {total_rows:,} rows | Arrow: {total_arrow_mb:.2f}MB | Parquet: {total_parquet_mb:.2f}MB | Compression: {total_compression:.1f}%")
+    print(f"Wall-clock time (cluster execution): {total_time:.2f}s")
+    print(f"Sum of individual processing times: {total_processing_time:.2f}s (represents total CPU work across all workers)")
     print(f"Average per file: {avg_time_per_file:.2f}s")
-    print("="*80 + "\n")
+    print(f"Overall throughput: {overall_throughput:.2f}MB/s")
+    print("="*100 + "\n")
     
     print("Preprocessing finished! Dataset converted from Arrow to Parquet format.")
     
