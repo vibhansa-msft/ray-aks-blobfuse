@@ -41,7 +41,17 @@ Write-Host "Data Preparation Job Deployed!" -ForegroundColor Green
 Write-Host "===============================" -ForegroundColor Green
 Write-Host ""
 
-# Wait for Ray head pod to be ready, then open dashboard
+# ========== MONITORING DEPLOYMENT ==========
+
+Write-Host "Setting up monitoring..." -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+# Deploy monitoring stack (Grafana + Prometheus)
+Deploy-MonitoringStack | Out-Null
+
+# ========== DASHBOARD ACCESS ==========
+
+# Wait for Ray head pod to be ready, then open both dashboards
 Write-Host "Waiting for Ray head pod to be ready..." -ForegroundColor Cyan
 $headReady = $false
 $waitTime = 0
@@ -53,8 +63,7 @@ while (-not $headReady -and $waitTime -lt $maxWait) {
         $podStatus = kubectl get pod $headPod -o jsonpath="{.status.phase}" 2>$null
         if ($podStatus -eq "Running") {
             $headReady = $true
-            Write-Host "Ray head pod is ready. Opening dashboard..." -ForegroundColor Green
-            & "$PSScriptRoot\open-dashboard.ps1"
+            Write-Host "Ray head pod is ready!" -ForegroundColor Green
             break
         }
     }
@@ -66,10 +75,15 @@ while (-not $headReady -and $waitTime -lt $maxWait) {
     }
 }
 
-if (-not $headReady) {
-    Write-Host "Ray head pod not ready after $maxWait seconds. Open dashboard manually:" -ForegroundColor Yellow
+if ($headReady) {
+    Write-Host ""
+    Open-AllDashboards
+} else {
+    Write-Host "Ray head pod not ready after $maxWait seconds. Open dashboards manually:" -ForegroundColor Yellow
     Write-Host "  .\open-dashboard.ps1" -ForegroundColor Gray
 }
 
 # Start monitoring
+Write-Host ""
+Write-Host "Starting job monitoring..." -ForegroundColor Cyan
 & "$PSScriptRoot\monitor-jobs.ps1" -JobName "data-prep-job"

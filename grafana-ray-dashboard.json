@@ -1,0 +1,290 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Ray Cluster Monitoring",
+    "tags": ["ray", "distributed-computing"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Ray Cluster Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ray_cluster_active_nodes",
+            "legendFormat": "Active Nodes"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Memory Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ray_node_memory_used_bytes / ray_node_memory_total_bytes * 100",
+            "legendFormat": "Memory Usage %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+      },
+      {
+        "id": 3,
+        "title": "CPU Utilization",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ray_node_cpu_utilization",
+            "legendFormat": "CPU Usage %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+      },
+      {
+        "id": 4,
+        "title": "Active Tasks",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ray_tasks_active",
+            "legendFormat": "Running Tasks"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Object Store Usage",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "ray_object_store_used_bytes / ray_object_store_available_bytes * 100",
+            "legendFormat": "Object Store %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 6,
+        "title": "Task Throughput",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(ray_tasks_total[5m])",
+            "legendFormat": "Tasks per second"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12}
+      },
+      {
+        "id": 7,
+        "title": "Worker Nodes Status",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "ray_node_info",
+            "legendFormat": "{{node_id}}"
+          }
+        ],
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 20}
+      },
+      {
+        "id": 8,
+        "title": "Ray Jobs Status",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "ray_job_status",
+            "legendFormat": "{{job_id}}"
+          }
+        ],
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 20}
+      },
+      {
+        "id": 9,
+        "title": "Network Bandwidth - Sent",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(ray_node_network_sent[5m]) * 8",
+            "legendFormat": "{{ip}} - Sent (bps)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bps",
+            "min": 0,
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26}
+      },
+      {
+        "id": 10,
+        "title": "Network Bandwidth - Received",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(ray_node_network_received[5m]) * 8",
+            "legendFormat": "{{ip}} - Received (bps)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bps",
+            "min": 0,
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26}
+      },
+      {
+        "id": 11,
+        "title": "Total Network Usage",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(ray_node_network_sent)",
+            "legendFormat": "Total Sent",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(ray_node_network_received)",
+            "legendFormat": "Total Received",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "color": {"mode": "palette-classic"},
+            "displayName": "${__field.labels.__name__}",
+            "mappings": [],
+            "custom": {
+              "displayMode": "list",
+              "orientation": "horizontal"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Total Sent"},
+              "properties": [
+                {"id": "displayName", "value": "Total Sent"},
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "Total Received"}, 
+              "properties": [
+                {"id": "displayName", "value": "Total Received"},
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}
+              ]
+            }
+          ]
+        },
+        "gridPos": {"h": 4, "w": 12, "x": 0, "y": 34}
+      },
+      {
+        "id": 12,
+        "title": "Network Speed (Real-time)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ray_node_network_send_speed * 8",
+            "legendFormat": "Send Speed - {{ip}}",
+            "refId": "A"
+          },
+          {
+            "expr": "ray_node_network_receive_speed * 8", 
+            "legendFormat": "Receive Speed - {{ip}}",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bps",
+            "min": 0,
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "barAlignment": 0,
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "spanNulls": false,
+              "insertNulls": false,
+              "showPoints": "never",
+              "pointSize": 5
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34}
+      },
+      {
+        "id": 13,
+        "title": "Network Utilization by Node",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "ray_node_network_sent",
+            "legendFormat": "Sent",
+            "format": "table"
+          },
+          {
+            "expr": "ray_node_network_received", 
+            "legendFormat": "Received",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        },
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 42}
+      }
+    ]
+  }
+}

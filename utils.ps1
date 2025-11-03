@@ -184,3 +184,191 @@ function Need {
         exit 1
     }
 }
+
+# =====================================================
+# Deploy Monitoring Stack (Grafana + Prometheus)
+# =====================================================
+# Deploys Grafana monitoring stack if not already running
+function Deploy-MonitoringStack {
+    Write-Host "[MONITOR] Checking monitoring stack..." -ForegroundColor Cyan
+    
+    # Check if monitoring namespace exists and has running pods
+    $monitoringPods = kubectl get pods -n monitoring --no-headers 2>$null
+    if ($LASTEXITCODE -eq 0 -and $monitoringPods) {
+        $runningPods = $monitoringPods | Where-Object { $_ -match "Running" }
+        if ($runningPods.Count -ge 2) {
+            Write-Host "[SUCCESS] Monitoring stack already running" -ForegroundColor Green
+            return $true
+        }
+    }
+    
+    Write-Host "[DEPLOY] Deploying monitoring stack..." -ForegroundColor Yellow
+    
+    # Deploy monitoring stack
+    kubectl apply -f k8s/grafana-monitoring.yaml
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Failed to deploy monitoring stack" -ForegroundColor Red
+        return $false
+    }
+    
+    # Wait for pods to be ready
+    Write-Host "[WAIT] Waiting for monitoring pods to be ready..." -ForegroundColor Yellow
+    
+    $timeout = 300  # 5 minutes
+    $elapsed = 0
+    do {
+        Start-Sleep -Seconds 10
+        $elapsed += 10
+        
+        $prometheusPod = kubectl get pods -n monitoring -l app=prometheus --no-headers 2>$null | Where-Object { $_ -match "Running" }
+        $grafanaPod = kubectl get pods -n monitoring -l app=grafana --no-headers 2>$null | Where-Object { $_ -match "Running" }
+        
+        if ($prometheusPod -and $grafanaPod) {
+            Write-Host "[SUCCESS] Monitoring stack deployed successfully!" -ForegroundColor Green
+            
+            # Import Ray dashboard if available
+            if (Test-Path "grafana-ray-dashboard.json") {
+                Import-RayDashboard
+            }
+            return $true
+        }
+        
+        Write-Host "   Still waiting... ($elapsed/$timeout seconds)" -ForegroundColor Gray
+    } while ($elapsed -lt $timeout)
+    
+    Write-Host "Warning: Monitoring deployment timeout. Check logs manually." -ForegroundColor Yellow
+    return $false
+}
+
+# =====================================================
+# Import Ray Dashboard to Grafana
+# =====================================================
+function Import-RayDashboard {
+    Write-Host "[IMPORT] Importing Ray dashboard..." -ForegroundColor Yellow
+    
+    try {
+        # Get Grafana service details
+        $grafanaService = kubectl get svc grafana-service -n monitoring -o json | ConvertFrom-Json
+        $grafanaURL = "http://localhost:3000"  # Use port forwarding by default
+        
+        # Start port forwarding in background if needed
+        $portForwardJob = Start-Job -ScriptBlock {
+            kubectl port-forward svc/grafana-service 3000:3000 -n monitoring
+        }
+        Start-Sleep -Seconds 5
+        
+        # Load and prepare dashboard
+        $dashboardJson = Get-Content "grafana-ray-dashboard.json" -Raw
+        $importPayload = @{
+            dashboard = ($dashboardJson | ConvertFrom-Json).dashboard
+            overwrite = $true
+            inputs = @()
+        } | ConvertTo-Json -Depth 20
+        
+        $headers = @{
+            'Authorization' = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("admin:raymonitoring123"))
+            'Content-Type' = 'application/json'
+        }
+        
+        # Import dashboard
+        Invoke-RestMethod -Uri "$grafanaURL/api/dashboards/import" -Method POST -Headers $headers -Body $importPayload | Out-Null
+        Write-Host "[SUCCESS] Ray dashboard imported successfully!" -ForegroundColor Green
+        
+        # Clean up port forward job
+        Stop-Job $portForwardJob -ErrorAction SilentlyContinue
+        Remove-Job $portForwardJob -ErrorAction SilentlyContinue
+    }
+    catch {
+        Write-Host "[WARNING] Dashboard import failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+# =====================================================
+# Open Both Ray and Grafana Dashboards
+# =====================================================
+function Open-AllDashboards {
+    Write-Host "[DASHBOARD] Opening Ray and Grafana dashboards..." -ForegroundColor Cyan
+    
+    # Get Ray dashboard URL - always use port forwarding for reliability
+    Write-Host "[INFO] Setting up Ray dashboard port forwarding..." -ForegroundColor Yellow
+    $rayURL = "http://localhost:8265"
+    
+    # Stop any existing port forwarding jobs
+    Get-Job -Name "RayPortForward*" -ErrorAction SilentlyContinue | Stop-Job | Remove-Job
+    
+    # Start Ray port forwarding to head service (more reliable than external service)
+    $headPod = kubectl get pod -l "ray.io/node-type=head" -o jsonpath="{.items[0].metadata.name}" 2>$null
+    if ($headPod) {
+        Start-Job -Name "RayPortForward" -ScriptBlock {
+            param($pod)
+            kubectl port-forward pod/$pod 8265:8265
+        } -ArgumentList $headPod | Out-Null
+        Start-Sleep -Seconds 5
+    } else {
+        Write-Host "[WARNING] No Ray head pod found for port forwarding" -ForegroundColor Yellow
+    }
+    
+    # Get Grafana URL
+    $grafanaExternalIP = kubectl get svc grafana-service -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    if (-not $grafanaExternalIP -or $grafanaExternalIP -eq "") {
+        Write-Host "[INFO] Setting up Grafana port forwarding..." -ForegroundColor Yellow
+        $grafanaURL = "http://localhost:3000"
+        
+        # Stop any existing Grafana port forwarding
+        Get-Job -Name "GrafanaPortForward*" -ErrorAction SilentlyContinue | Stop-Job | Remove-Job
+        
+        # Start Grafana port forwarding
+        Start-Job -Name "GrafanaPortForward" -ScriptBlock {
+            kubectl port-forward svc/grafana-service 3000:3000 -n monitoring
+        } | Out-Null
+        Start-Sleep -Seconds 3
+    } else {
+        Write-Host "[INFO] Using Grafana external IP: $grafanaExternalIP" -ForegroundColor Yellow
+        $grafanaURL = "http://${grafanaExternalIP}:3000"
+    }
+    
+    Write-Host "[INFO] Dashboard URLs:" -ForegroundColor Green
+    Write-Host "   Ray Dashboard: $rayURL" -ForegroundColor White
+    Write-Host "   Grafana: $grafanaURL" -ForegroundColor White
+    Write-Host "   Grafana Credentials: admin / raymonitoring123" -ForegroundColor Yellow
+    Write-Host ""
+    
+    # Automatically open both dashboards
+    Write-Host "[BROWSER] Opening Ray dashboard..." -ForegroundColor Cyan
+    Start-Process $rayURL
+    
+    Start-Sleep -Seconds 2
+    
+    Write-Host "[BROWSER] Opening Grafana dashboard..." -ForegroundColor Cyan
+    Start-Process $grafanaURL
+    
+    Write-Host "[SUCCESS] Both dashboards opened!" -ForegroundColor Green
+    Write-Host "[INFO] Use credentials for Grafana: admin / raymonitoring123" -ForegroundColor Yellow
+    
+    # Import Ray dashboard to Grafana if it exists
+    if (Test-Path "grafana-ray-dashboard.json") {
+        Write-Host "[IMPORT] Importing Ray dashboard to Grafana..." -ForegroundColor Cyan
+        Start-Sleep -Seconds 5  # Wait for Grafana to be ready
+        try {
+            $dashboardJson = Get-Content "grafana-ray-dashboard.json" -Raw
+            $importPayload = @{
+                dashboard = ($dashboardJson | ConvertFrom-Json).dashboard
+                overwrite = $true
+                inputs = @()
+            } | ConvertTo-Json -Depth 20
+            
+            $headers = @{
+                'Authorization' = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("admin:raymonitoring123"))
+                'Content-Type' = 'application/json'
+            }
+            
+            $response = Invoke-RestMethod -Uri "$grafanaURL/api/dashboards/import" -Method POST -Headers $headers -Body $importPayload
+            Write-Host "[SUCCESS] Ray dashboard imported! Dashboard ID: $($response.dashboardId)" -ForegroundColor Green
+            Write-Host "[INFO] Navigate to Dashboards -> Browse -> Ray Cluster Monitoring in Grafana" -ForegroundColor Yellow
+        }
+        catch {
+            Write-Host "[WARNING] Dashboard import failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "[INFO] You can manually import grafana-ray-dashboard.json via Grafana UI" -ForegroundColor Gray
+        }
+    }
+}

@@ -1,0 +1,305 @@
+# ========== GRAFANA MONITORING STACK ==========
+# This configuration sets up Grafana with Prometheus for Ray monitoring
+# Provides comprehensive dashboards for Ray cluster metrics, job progress, and resource utilization
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+
+---
+# ========== PROMETHEUS CONFIGURATION ==========
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Ray Head Node Metrics
+      - job_name: 'ray-head'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+              - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_ray_io_node_type]
+            action: keep
+            regex: head
+          - source_labels: [__address__]
+            action: replace
+            regex: '([^:]+):.*'
+            target_label: __address__
+            replacement: '${1}:8080'  # Ray metrics port
+
+      # Ray Worker Node Metrics  
+      - job_name: 'ray-workers'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+              - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_ray_io_node_type]
+            action: keep
+            regex: worker
+          - source_labels: [__address__]
+            action: replace
+            regex: '([^:]+):.*'
+            target_label: __address__
+            replacement: '${1}:8080'  # Ray metrics port
+
+      # Kubernetes Pod Metrics
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+
+---
+# ========== PROMETHEUS DEPLOYMENT ==========
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.47.0
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=200h'
+          - '--web.enable-lifecycle'
+        ports:
+        - containerPort: 9090
+        resources:
+          requests:
+            cpu: 200m
+            memory: 1000Mi
+          limits:
+            cpu: 1000m
+            memory: 2000Mi
+        volumeMounts:
+        - name: prometheus-config-volume
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage-volume
+          mountPath: /prometheus/
+      volumes:
+      - name: prometheus-config-volume
+        configMap:
+          defaultMode: 420
+          name: prometheus-config
+      - name: prometheus-storage-volume
+        emptyDir: {}
+
+---
+# ========== PROMETHEUS SERVICE ==========
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: monitoring
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '9090'
+spec:
+  selector:
+    app: prometheus
+  type: ClusterIP
+  ports:
+    - port: 9090
+      targetPort: 9090
+
+---
+# ========== PROMETHEUS SERVICE ACCOUNT ==========
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: monitoring
+
+---
+# ========== GRAFANA DEPLOYMENT ==========
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      name: grafana
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.2.0
+        ports:
+        - name: grafana
+          containerPort: 3000
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+          requests:
+            memory: 500M
+            cpu: "500m"
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-datasources
+          readOnly: false
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: raymonitoring123  # Change this in production!
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+      - name: grafana-datasources
+        configMap:
+          defaultMode: 420
+          name: grafana-datasources
+
+---
+# ========== GRAFANA DATASOURCE CONFIG ==========
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  prometheus.yaml: |-
+    {
+        "apiVersion": 1,
+        "datasources": [
+            {
+               "access":"proxy",
+                "editable": true,
+                "name": "prometheus",
+                "orgId": 1,
+                "type": "prometheus",
+                "url": "http://prometheus-service.monitoring.svc:9090",
+                "version": 1
+            }
+        ]
+    }
+
+---
+# ========== GRAFANA SERVICE ==========
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: monitoring
+  annotations:
+      prometheus.io/scrape: 'true'
+      prometheus.io/port: '3000'
+spec:
+  selector:
+    app: grafana
+  type: LoadBalancer  # External access to Grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+---
+# ========== RAY DASHBOARD SERVICE MONITOR ==========
+# Ensures Ray Dashboard metrics are accessible to Prometheus
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ray-dashboard-metrics
+  namespace: default
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8080'
+spec:
+  selector:
+    ray.io/node-type: head
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
