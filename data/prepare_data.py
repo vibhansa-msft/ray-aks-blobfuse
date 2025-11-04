@@ -146,10 +146,15 @@ def preprocess_data(raw_dataset_path, output_path):
 # Initialize Ray (for local or cluster use; omit address for single machine)
 ray.init(address="auto")
 
-# Choose the data and output path (use CHECKPOINT_DIR which is read-write)
+# Choose the data and output path
+# Read from DATA_DIR (input location), write to CHECKPOINT_DIR (output location)
 dataset = "openwebtext"
-output_path = os.path.join(os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints"), dataset)
-raw_dataset_path = os.path.join(os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints"), "raw", dataset)
+
+data_dir = os.getenv("DATA_DIR", "/mnt/blob/data")
+checkpoint_dir = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
+
+raw_dataset_path = os.path.join(data_dir, "raw", dataset)
+output_path = os.path.join(checkpoint_dir, dataset)
 
 # Check if raw dataset already exists to avoid re-downloading
 if os.path.exists(raw_dataset_path) and os.listdir(raw_dataset_path):
