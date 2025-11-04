@@ -41,6 +41,10 @@ function Load-EnvParameters {
     if (-not $CHECKPOINT_DIR) { $CHECKPOINT_DIR = "/mnt/blob/checkpoints" }
     if (-not $APP_DIR) { $APP_DIR = "/app" }
     if (-not $CACHE_DIR) { $CACHE_DIR = "/mnt/blobfusecache" }
+
+    if (-not $DATAPREP_RAY_CONFIG) { $DATAPREP_RAY_CONFIG = "k8s/raycluster-dataprep.yaml" }
+    if (-not $STORAGE_ACCOUNT_KEY) { $STORAGE_ACCOUNT_KEY = "" }
+    if (-not $MAX_PREPROCESS_TASK_CONCURRENCY) { $MAX_PREPROCESS_TASK_CONCURRENCY = 3 }
 }
 
 # =====================================================
