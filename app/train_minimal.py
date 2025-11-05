@@ -17,16 +17,18 @@ DATA_DIR = os.getenv("DATA_DIR", "/mnt/blob/datasets")
 CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
 NUM_WORKERS = int(os.getenv("NUM_WORKERS", "2"))
 
-MODEL_NAME = os.getenv("MODEL_NAME", "openai-community/gpt2")
+mode_type="gpt2"
+
+MODEL_NAME = os.getenv("MODEL_NAME", "openai-community/") + mode_type
 LEARNING_RATE = float(os.getenv("LEARNING_RATE", "2e-5"))
 MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "512"))
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
 # Construct paths
 PARQUET_PATH = os.path.join(DATA_DIR.rstrip("/"), "openwebtext/*.parquet")
-WORKER_CHECKPOINT_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "worker_checkpoints/gpt2/")
-TRAINED_MODEL_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "model/gpt2/")
-MODEL_CACHE_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "base_models/gpt2/")
+WORKER_CHECKPOINT_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "worker_checkpoints", mode_type)
+TRAINED_MODEL_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "model", mode_type)
+MODEL_CACHE_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "base_models", mode_type)
 
 print(f"\n{'='*80}")
 print(f"HEAD NODE: TRAINING CONFIGURATION")
