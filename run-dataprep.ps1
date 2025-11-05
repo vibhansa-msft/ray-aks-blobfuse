@@ -23,10 +23,19 @@ Write-Host "ConfigMap updated with latest code." -ForegroundColor Green
 Write-Host "Deploying data preparation RayJob..."
 
 # Prepare data preparation job YAML with path substitution
-$dataprepYaml = Get-Content "k8s/rayjob-dataprep.yaml" -Raw
+$dataprepYaml = Get-Content "$DATAPREP_RAY_CONFIG" -Raw
 
 # Substitute placeholder tokens with actual paths (from .env.example)
-$dataprepYaml = $dataprepYaml -replace "__DATA_DIR__", $DATA_DIR -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR -replace "__APP_DIR__", $APP_DIR -replace "__CACHE_DIR__", $CACHE_DIR -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS -replace "__NUM_WORKERS__", $NUM_WORKERS
+$dataprepYaml = $dataprepYaml `
+    -replace "__DATA_DIR__", $DATA_DIR `
+    -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR `
+    -replace "__APP_DIR__", $APP_DIR `
+    -replace "__CACHE_DIR__", $CACHE_DIR `
+    -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS `
+    -replace "__NUM_WORKERS__", $NUM_WORKERS `
+    -replace "__AZURE_STORAGE_ACCOUNT_NAME__", $SA `
+    -replace "__AZURE_STORAGE_ACCOUNT_KEY__", $STORAGE_ACCOUNT_KEY `
+    -replace "__MAX_PREPROCESS_TASK_CONCURRENCY__", $MAX_PREPROCESS_TASK_CONCURRENCY
 
 # Apply the processed YAML
 $dataprepYaml | kubectl apply -f - | Out-Null
