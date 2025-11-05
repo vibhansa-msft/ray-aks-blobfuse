@@ -21,10 +21,14 @@ metadata:
 spec:
   # ===== Job Configuration =====
   
-  # Entry point command - can be customized for different datasets
-  entrypoint: "python /app/prepare_data.py"
+  # Shutdown the Ray cluster when job finishes
+  shutdownAfterJobFinishes: true
+  
+  # TTL for automatic cleanup - delete job 30 minutes after completion
+  ttlSecondsAfterFinished: 1800
 
-  # Runtime environment variables and dependencies
+  # Entry point command - can be customized for different datasets
+  entrypoint: "python /app/prepare_data.py"  # Runtime environment variables and dependencies
   runtimeEnvYAML: |
     pip:
       - datasets==2.16.0

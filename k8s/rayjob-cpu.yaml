@@ -22,6 +22,12 @@ metadata:
 
 spec:
   # ===== Job Configuration =====
+
+  # Shutdown the Ray cluster when job finishes
+  shutdownAfterJobFinishes: true
+  
+  # TTL for automatic cleanup - delete job 30 minutes after completion
+  ttlSecondsAfterFinished: 1800
   
   # Entry point command executed on Ray job submit
   entrypoint: "python /app/train_hpo.py"
