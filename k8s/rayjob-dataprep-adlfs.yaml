@@ -1,0 +1,101 @@
+# ========== RAY DATA PREPARATION JOB ==========
+# This RayJob specification configures a Ray cluster for data preparation tasks
+# Designed to run various data preparation scripts (prepare_data.py)
+#
+# Key features:
+#   - CPU-only worker nodes optimized for data processing
+#   - Azure Blob Storage integration for data output
+#   - Distributed Ray cluster for parallel data processing
+#   - Flexible dataset download and Parquet conversion
+
+apiVersion: ray.io/v1
+kind: RayJob
+
+# ========== METADATA ==========
+
+metadata:
+  name: data-prep-job
+
+# ========== RAY JOB SPECIFICATION ==========
+
+spec:
+  # ===== Job Configuration =====
+  
+  # Entry point command - can be customized for different datasets
+  entrypoint: "python /app/prepare_data_adlfs.py"
+
+  # Runtime environment variables and dependencies
+  runtimeEnvYAML: |
+    pip:
+      - adlfs==2025.8.0
+      - pyarrow==21.0.0
+    env_vars:
+      AZURE_STORAGE_ACCOUNT_NAME: "__AZURE_STORAGE_ACCOUNT_NAME__"
+      AZURE_STORAGE_ACCOUNT_KEY: "__AZURE_STORAGE_ACCOUNT_KEY__"
+      MAX_PREPROCESS_TASK_CONCURRENCY: "__MAX_PREPROCESS_TASK_CONCURRENCY__"
+
+  # ========== RAY CLUSTER SPECIFICATION ==========
+
+  rayClusterSpec:
+    # Ray version - uses official Ray image from Docker Hub
+    rayVersion: "2.50.0"
+
+    # ===== HEAD NODE CONFIGURATION =====
+    # Single head node that coordinates the distributed cluster
+    
+    headGroupSpec:
+      serviceType: ClusterIP
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            # Standard Ray image with Python support
+            image: rayproject/ray:2.50.0
+            
+            # Ray object spilling configuration for memory management
+            env:
+              - name: RAY_OBJECT_SPILLING_CONFIG
+                value: |
+                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+            
+            volumeMounts:
+              - name: app-code
+                mountPath: "__APP_DIR__"
+          
+          # Persistent volumes for Azure Blob Storage
+          volumes:
+            - name: app-code
+              configMap:
+                name: hpo-app-code
+                defaultMode: 0755
+
+    # ===== CPU WORKER NODES CONFIGURATION =====
+    # Worker nodes optimized for data processing tasks
+    
+    workerGroupSpecs:
+    - groupName: data-workers
+      replicas: __WORKER_REPLICAS__
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            # Standard Ray image with Python support
+            image: rayproject/ray:2.50.0
+            
+            # Ray object spilling for memory management
+            env:
+              - name: RAY_OBJECT_SPILLING_CONFIG
+                value: |
+                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+            
+            # Mount Azure Blob Storage for dataset output
+            volumeMounts:
+              - name: app-code
+                mountPath: "__APP_DIR__"
+          
+          # Persistent volumes for Azure Blob Storage
+          volumes:
+            - name: app-code
+              configMap:
+                name: hpo-app-code
+                defaultMode: 0755
