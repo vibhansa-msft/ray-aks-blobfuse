@@ -42,6 +42,7 @@ spec:
     env_vars:
       DATA_DIR: "__DATA_DIR__"
       CHECKPOINT_DIR: "__CHECKPOINT_DIR__"
+      CHECKPOINT_CACHE: "__CHECKPOINT_CACHE__"
       APP_DIR: "__APP_DIR__"
       NUM_WORKERS: "__NUM_WORKERS__"
       NUM_SAMPLES: "12"
@@ -66,9 +67,9 @@ spec:
       template:
         spec:
           initContainers:
-          - name: setup-blobfuse-cache
+          - name: setup-cache-directories
             image: busybox:1.28
-            command: ['mkdir', '-p', '__CACHE_DIR__']
+            command: ['sh', '-c', 'mkdir -p __CACHE_DIR__ && mkdir -p __CHECKPOINT_CACHE__']
             resources:
               requests:
                 cpu: "100m"
@@ -78,7 +79,9 @@ spec:
                 memory: "256Mi"
             volumeMounts:
               - name: cache-dir
-                mountPath: /mnt
+                mountPath: __CACHE_DIR__
+              - name: checkpoint-cache-dir
+                mountPath: __CHECKPOINT_CACHE__
           containers:
           - name: ray-head
             # Standard Ray image with Python support
@@ -87,11 +90,11 @@ spec:
             # Resource requests for proper scheduling and autoscaling
             resources:
               requests:
-                cpu: "4000m"      # 4 CPU cores for head node
-                memory: "8Gi"     # 8GB memory for head node
+                cpu: "20000m"      # 20 CPU cores for head node
+                memory: "32Gi"     # 32GB memory for head node
               limits:
-                cpu: "8000m"      # Max 8 CPU cores
-                memory: "16Gi"    # Max 16GB memory
+                cpu: "32000m"      # Max 32 CPU cores
+                memory: "64Gi"    # Max 64GB memory
             
             # Ray object spilling configuration for memory management
             env:
@@ -110,6 +113,8 @@ spec:
                 mountPath: "__APP_DIR__"
               - name: cache-dir
                 mountPath: "__CACHE_DIR__"
+              - name: checkpoint-cache-dir
+                mountPath: "__CHECKPOINT_CACHE__"
           
           # Persistent volumes for Azure Blob Storage
           volumes:
@@ -126,6 +131,8 @@ spec:
                 defaultMode: 0755
             - name: cache-dir
               emptyDir: {}
+            - name: checkpoint-cache-dir
+              emptyDir: {}
 
     # ===== CPU WORKER NODES CONFIGURATION =====
     # Worker nodes that execute distributed training tasks
@@ -140,9 +147,9 @@ spec:
       template:
         spec:
           initContainers:
-          - name: setup-blobfuse-cache
+          - name: setup-cache-directories
             image: busybox:1.28
-            command: ['mkdir', '-p', '__CACHE_DIR__']
+            command: ['sh', '-c', 'mkdir -p __CACHE_DIR__ && mkdir -p __CHECKPOINT_CACHE__']
             resources:
               requests:
                 cpu: "100m"
@@ -152,7 +159,9 @@ spec:
                 memory: "256Mi"
             volumeMounts:
               - name: cache-dir
-                mountPath: /mnt
+                mountPath: __CACHE_DIR__
+              - name: checkpoint-cache-dir
+                mountPath: __CHECKPOINT_CACHE__
           containers:
           - name: ray-worker
             # Standard Ray image with Python support
@@ -161,11 +170,11 @@ spec:
             # Resource requests for proper scheduling and autoscaling
             resources:
               requests:
-                cpu: "10000m"     # 10 CPU cores per worker (Standard_D48ds_v5 has 48 cores)
-                memory: "32Gi"    # 32GB memory per worker
+                cpu: "32000m"     # 32 CPU cores per worker (Standard_D48ds_v5 has 48 cores)
+                memory: "140Gi"    # 140GB memory per worker
               limits:
-                cpu: "12000m"     # Max 12 CPU cores per worker
-                memory: "40Gi"    # Max 40GB memory per worker
+                cpu: "40000m"     # Max 40 CPU cores per worker
+                memory: "160Gi"    # Max 160GB memory per worker (leaves 12GB headroom on 192GB node)
             
             # Ray object spilling for memory management
             env:
@@ -184,6 +193,8 @@ spec:
                 mountPath: "__APP_DIR__"
               - name: cache-dir
                 mountPath: "__CACHE_DIR__"
+              - name: checkpoint-cache-dir
+                mountPath: "__CHECKPOINT_CACHE__"
           
           # Persistent volumes for Azure Blob Storage
           volumes:
@@ -199,4 +210,6 @@ spec:
                 name: hpo-app-code
                 defaultMode: 0755
             - name: cache-dir
+              emptyDir: {}
+            - name: checkpoint-cache-dir
               emptyDir: {}

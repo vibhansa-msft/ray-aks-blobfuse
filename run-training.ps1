@@ -11,7 +11,7 @@ Write-Host "==============================================" -ForegroundColor Cya
 
 # Clean up any existing training jobs
 Write-Host "Cleaning up existing training jobs..."
-kubectl delete rayjob model-training-job --ignore-not-found=true 2>$null | Out-Null
+kubectl delete rayjob --all --ignore-not-found=true 2>$null | Out-Null
 
 # Ensure ConfigMap has the latest code
 Write-Host "Updating application code ConfigMap..."
@@ -30,11 +30,13 @@ $trainingYaml = $trainingYaml -replace "__DATA_DIR__", $DATA_DIR `
     -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR `
     -replace "__APP_DIR__", $APP_DIR `
     -replace "__CACHE_DIR__", $CACHE_DIR `
+    -replace "__CHECKPOINT_DIR__", $CHECKPOINT_CACHE `
     -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS `
     -replace "__NUM_WORKERS__", $NUM_WORKERS `
     -replace "__FILES_PER_WORKER__", 3 `
     -replace "__BATCH_SIZE__", 64 `
-    -replace "__DATASET__", "openwebtext"
+    -replace "__DATASET__", "openwebtext" `
+    -replace "__HF_TOKEN__", $HF_TOKEN
 
 
 # Apply the processed YAML

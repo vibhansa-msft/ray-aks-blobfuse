@@ -50,7 +50,21 @@ try {
 
 Write-Host "Creating StorageClasses for Blobfuse2..."
 $scYaml = Get-Content k8s/storageclass-blobfuse2.yaml -Raw
-$scYaml = $scYaml -replace "__STORAGE_ACCOUNT__", $SA -replace "__CONTAINER__", $CONTAINER -replace "__RESOURCE_GROUP__", $RG
+$scYaml = $scYaml `
+    -replace "__STORAGE_ACCOUNT__", $SA `
+    -replace "__CONTAINER__", $CONTAINER `
+    -replace "__RESOURCE_GROUP__", $RG `
+    -replace "__DATA_DIR__", $DATA_DIR `
+    -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR `
+    -replace "__APP_DIR__", $APP_DIR `
+    -replace "__CACHE_DIR__", $CACHE_DIR `
+    -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS `
+    -replace "__NUM_WORKERS__", $NUM_WORKERS `
+    -replace "__AZURE_STORAGE_ACCOUNT_NAME__", $SA `
+    -replace "__AZURE_STORAGE_ACCOUNT_KEY__", $STORAGE_ACCOUNT_KEY `
+    -replace "__MAX_PREPROCESS_TASK_CONCURRENCY__", $MAX_PREPROCESS_TASK_CONCURRENCY `
+    -replace "__CHECKPOINT_CACHE__", $CHECKPOINT_CACHE
+
 $scYaml | kubectl apply -f - | Out-Null
 
 Write-Host "Deleting existing PVCs (if any) to apply new configuration..."

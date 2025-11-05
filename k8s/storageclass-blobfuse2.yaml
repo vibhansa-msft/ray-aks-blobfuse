@@ -17,7 +17,7 @@ mountOptions:
   - -o allow_other
   - -o ro
   - --file-cache-timeout-in-seconds=3600
-  - --tmp-path=/mnt/blobfusecache
+  - --tmp-path=__CACHE_DIR__
   - --log-level=LOG_DEBUG
   - --log-type=base
   - --log-file-path=/var/log/blobfuse-training.log
@@ -47,10 +47,11 @@ parameters:
 mountOptions:
   - -o allow_other
   - -o direct_io
-  - --block-cache
+  - --tmp-path=__CHECKPOINT_CACHE__
   - --log-level=LOG_DEBUG
   - --log-type=base
   - --log-file-path=/var/log/blobfuse-checkpoints.log
+  # - --block-cache
 
 allowVolumeExpansion: true
 reclaimPolicy: Retain
