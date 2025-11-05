@@ -1,5 +1,20 @@
 
-transformers>=4.44
-datasets>=2.20
-pyarrow
-pandas
+# Core ML frameworks
+torch>=2.1.0
+transformers>=4.35.0
+datasets>=2.14.5
+
+# Data processing
+pyarrow>=14.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Model optimization
+bitsandbytes>=0.41.0
+accelerate>=0.24.0
+
+# Tokenization
+sentencepiece>=0.1.99
+
+# Ray distributed computing
+ray[tune]>=2.50.0

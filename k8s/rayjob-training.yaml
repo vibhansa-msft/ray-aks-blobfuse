@@ -14,7 +14,7 @@ kind: RayJob
 # ========== METADATA ==========
 
 metadata:
-  name: data-prep-job
+  name: model-training-job
 
 # ========== RAY JOB SPECIFICATION ==========
 
@@ -22,18 +22,30 @@ spec:
   # ===== Job Configuration =====
   
   # Entry point command - can be customized for different datasets
-  entrypoint: "python /app/prepare_data.py"
+  entrypoint: "python /app/train_simple.py"
 
   # Runtime environment variables and dependencies
   runtimeEnvYAML: |
     pip:
-      - datasets==2.16.0
-      - pyarrow==14.0.0
-      - transformers==4.36.0
+      - torch>=2.1.0
+      - transformers>=4.35.0
+      - datasets>=2.14.5
+      - pyarrow>=14.0.0
+      - pandas>=2.0.0
+      - bitsandbytes>=0.41.0
+      - numpy>=1.24.0
+      - accelerate>=0.24.0
+      - sentencepiece>=0.1.99
+      - ray[tune]>=2.50.0
     env_vars:
       DATA_DIR: "__DATA_DIR__"
       CHECKPOINT_DIR: "__CHECKPOINT_DIR__"
+      APP_DIR: "__APP_DIR__"
+      NUM_WORKERS: "__NUM_WORKERS__"
+      NUM_SAMPLES: "12"
       PYTHONPATH: "__APP_DIR__"
+      TRANSFORMERS_OFFLINE: "0"
+      HF_TOKEN: "__HF_TOKEN__"
 
   # ========== RAY CLUSTER SPECIFICATION ==========
 
@@ -56,7 +68,7 @@ spec:
           initContainers:
           - name: setup-blobfuse-cache
             image: busybox:1.28
-            command: ['mkdir', '-p', '__CACHE_DIR__']
+            command: ['mkdir', '-p', '__CHECKPOINT_DIR__']
             resources:
               requests:
                 cpu: "100m"
@@ -65,8 +77,8 @@ spec:
                 cpu: "200m"
                 memory: "256Mi"
             volumeMounts:
-              - name: cache-dir
-                mountPath: /mnt
+              - name: blob-checkpoints
+                mountPath: __CHECKPOINT_DIR__
           containers:
           - name: ray-head
             # Standard Ray image with Python support
@@ -76,10 +88,10 @@ spec:
             resources:
               requests:
                 cpu: "4000m"      # 4 CPU cores for head node
-                memory: "8Gi"     # 8GB memory for head node
+                memory: "32Gi"    # 32GB memory for model loading
               limits:
                 cpu: "8000m"      # Max 8 CPU cores
-                memory: "16Gi"    # Max 16GB memory
+                memory: "64Gi"    # Max 64GB memory
             
             # Ray object spilling configuration for memory management
             env:
@@ -87,10 +99,11 @@ spec:
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
             
-            # Mount Azure Blob Storage for dataset output
+           # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:
               - name: blob-dataset
                 mountPath: "__DATA_DIR__"
+                readOnly: true
               - name: blob-checkpoints
                 mountPath: "__CHECKPOINT_DIR__"
               - name: app-code
@@ -103,6 +116,7 @@ spec:
             - name: blob-dataset
               persistentVolumeClaim:
                 claimName: blob-pvc-dataset
+                readOnly: true
             - name: blob-checkpoints
               persistentVolumeClaim:
                 claimName: blob-pvc-checkpoint
@@ -141,13 +155,16 @@ spec:
             image: rayproject/ray:2.50.0
             
             # Resource requests for proper scheduling and autoscaling
+            # D48ds_v5: 48 vCPU, 192GB RAM per node
+            # 23 nodes × 2 workers per node ≈ 40 workers
+            # Per worker allocation: 22 vCPU, 90GB RAM (leaving headroom for system)
             resources:
               requests:
-                cpu: "10000m"     # 10 CPU cores per worker (Standard_D48ds_v5 has 48 cores)
-                memory: "32Gi"    # 80GB memory per worker (Standard_D48ds_v5 has 192GB)
+                cpu: "22000m"     # 22 vCPU per worker (48/2 = 24, request 22 for headroom)
+                memory: "90Gi"    # 90GB per worker (192/2 = 96, request 90 for headroom)
               limits:
-                cpu: "12000m"     # Max 12 CPU cores per worker
-                memory: "40Gi"   # Max 100GB memory per worker (for data processing)
+                cpu: "24000m"     # Max 24 vCPU per worker (full 48/2)
+                memory: "96Gi"    # Max 96GB per worker (full 192/2)
             
             # Ray object spilling for memory management
             env:
@@ -155,10 +172,11 @@ spec:
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
             
-            # Mount Azure Blob Storage for dataset output
+            # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:
               - name: blob-dataset
                 mountPath: "__DATA_DIR__"
+                readOnly: true
               - name: blob-checkpoints
                 mountPath: "__CHECKPOINT_DIR__"
               - name: app-code
@@ -171,6 +189,7 @@ spec:
             - name: blob-dataset
               persistentVolumeClaim:
                 claimName: blob-pvc-dataset
+                readOnly: true
             - name: blob-checkpoints
               persistentVolumeClaim:
                 claimName: blob-pvc-checkpoint
