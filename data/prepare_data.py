@@ -1,19 +1,124 @@
 import ray
 import os 
 import ray.data
+import time
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pathlib
+
+
+
+dataset = "c4"
+dataset_config = "en"  # Config name for C4 dataset (e.g., 'en', 'realnewslike', 'en.noblocklist', 'en.noclean')
+NUM_EXAMPLES = 30000000  # Total dataset has 364,613,570 rows. We choose only 30M to conserve space. Total size on disk is ~400GB data
+
+# dataset = "openwebtext"
+# dataset_config = ""
+# NUM_EXAMPLES = None  # Total dataset has 8M rows and roughly 80 * 800 = 15GB worth data
+
+# Choose the data and output path
+# Read from DATA_DIR (input location), write to CHECKPOINT_DIR (output location)
+data_dir = os.getenv("DATA_DIR", "/mnt/blob/data")
+checkpoint_dir = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
+
+raw_dataset_path = os.path.join(data_dir, "raw", dataset, dataset_config)
+output_path = os.path.join(checkpoint_dir, dataset)
 
 @ray.remote
 def download_dataset(dataset, raw_dataset_path):
     from datasets import load_dataset
+    import pyarrow as pa
     
     # Load dataset (from Hugging Face) and save to given path
     print(f"Downloading {dataset} from Hugging Face...")
-    hf_dataset = load_dataset(dataset, split="train", streaming=False, trust_remote_code=True)
     
-    print(f"Saving {dataset} to {raw_dataset_path} ...")
-    hf_dataset.save_to_disk(raw_dataset_path)
-    print("Download finished and saved!")
-    
+    if dataset_config and NUM_EXAMPLES is not None:
+        print(f"Using config: {dataset_config} - Streaming with manual partitioning")
+        
+        start_time = time.time()
+        
+        # Load dataset from HuggingFace using datasets library (streaming mode)
+        print(f"Loading dataset with streaming=True for memory efficiency...")
+        hf_dataset = load_dataset(
+            dataset, 
+            dataset_config, 
+            split="train",
+            streaming=True,
+            trust_remote_code=True
+        )
+        
+        # Stream and partition data into Arrow files
+        rows_per_file = 200000
+        current_buffer = []
+        file_count = 0
+        total_rows = 0
+        
+        print(f"Streaming data and partitioning into files (~{rows_per_file:,} rows per file)...")
+        
+        for i, example in enumerate(hf_dataset):
+            # Stop at NUM_EXAMPLES
+            if i >= NUM_EXAMPLES:
+                break
+            
+            current_buffer.append(example)
+            total_rows += 1
+            
+            # Write file when buffer is full
+            if len(current_buffer) >= rows_per_file:
+                table = pa.Table.from_pylist(current_buffer)
+                file_path = os.path.join(raw_dataset_path, f"data_shard-{file_count:05d}.arrow")
+                
+                # Write using PyArrow IPC format (streaming format)
+                with open(file_path, 'wb') as f:
+                    writer = pa.ipc.new_stream(f, table.schema)
+                    writer.write_table(table)
+                    writer.close()
+                
+                current_buffer = []
+                file_count += 1
+                
+                print(f"  Written {file_count} files ({total_rows:,} rows so far)...\n")
+        
+        # Write remaining data
+        if current_buffer:
+            table = pa.Table.from_pylist(current_buffer)
+            file_path = os.path.join(raw_dataset_path, f"data_shard-{file_count:05d}.arrow")
+            
+            with open(file_path, 'wb') as f:
+                writer = pa.ipc.new_stream(f, table.schema)
+                writer.write_table(table)
+                writer.close()
+            
+            file_count += 1
+        
+        end_time = time.time()
+        
+        # Count the Arrow files created
+        arrow_files = sorted(list(pathlib.Path(raw_dataset_path).glob("*.arrow")))
+        num_files = len(arrow_files)
+        
+        # Calculate file statistics
+        total_size_mb = sum(f.stat().st_size for f in arrow_files) / (1024 * 1024)
+        avg_file_size_mb = total_size_mb / num_files if num_files > 0 else 0
+        
+        print(f"\n=======================================================")
+        print(f"Successfully downloaded {total_rows:,} rows using streaming")
+        print(f"Total Arrow files written: {num_files}")
+        print(f"Total data size: {total_size_mb:.2f} MB")
+        print(f"Average file size: {avg_file_size_mb:.2f} MB per file")
+        print(f"Files saved in: {raw_dataset_path}")
+        print(f"Total execution time: {end_time - start_time:.2f} seconds")
+        print(f"=======================================================")
+    else:
+        # Fallback for datasets without config or when no limit is set
+        print(f"Using direct HuggingFace API (non-streaming approach)")
+        hf_dataset = load_dataset(dataset, split="train", streaming=False, trust_remote_code=True)
+
+        # As we are not in streaming mode, everything is already loaded in memory so lets just dump it
+        print(f"Saving {dataset} to {raw_dataset_path} ...")
+        hf_dataset.save_to_disk(raw_dataset_path)
+        print("Download finished and saved!")
+
     return "Completed Download !!"
 
 @ray.remote
@@ -146,16 +251,6 @@ def preprocess_data(raw_dataset_path, output_path):
 # Initialize Ray (for local or cluster use; omit address for single machine)
 ray.init(address="auto")
 
-# Choose the data and output path
-# Read from DATA_DIR (input location), write to CHECKPOINT_DIR (output location)
-dataset = "openwebtext"
-
-data_dir = os.getenv("DATA_DIR", "/mnt/blob/data")
-checkpoint_dir = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
-
-raw_dataset_path = os.path.join(data_dir, "raw", dataset)
-output_path = os.path.join(checkpoint_dir, dataset)
-
 # Check if raw dataset already exists to avoid re-downloading
 if os.path.exists(raw_dataset_path) and os.listdir(raw_dataset_path):
     print(f"Raw dataset already exists at {raw_dataset_path}. Skipping download.")
@@ -163,7 +258,10 @@ if os.path.exists(raw_dataset_path) and os.listdir(raw_dataset_path):
 else:
     # Run the method to download the data and save it to storage account
     print(f"Raw dataset not found. Starting download...")
+    raw_dataset_path = os.path.join(checkpoint_dir, "raw", dataset, dataset_config)
+    os.makedirs(raw_dataset_path, exist_ok=True)
     result = ray.get(download_dataset.remote(dataset, raw_dataset_path))
+    
 print(result)
 
 # Run the method to preprocess the data and save it to storage account in parquet format

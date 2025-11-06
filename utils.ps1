@@ -23,27 +23,6 @@ function Load-EnvParameters {
         }
     }
     
-    # Set default values for parameters not in .env.example
-    if (-not $SUBSCRIPTION) { $SUBSCRIPTION = "68e5d74d-cc6b-4be6-9606-cd1c77fa55f0" }
-    if (-not $RG) { $RG = "vibhansa-ray-aks-rg" }
-    if (-not $AKS) { $AKS = "vibhansa-ray-aks" }
-    if (-not $SA) { $SA = "vibhansaraystorage" }
-    if (-not $LOC) { $LOC = "eastus" }
-    if (-not $CONTAINER) { $CONTAINER = "dataset" }
-    if (-not $GPU) { $GPU = $false }
-    if (-not $NodeCount) { $NodeCount = 2 }
-    if (-not $VmType) { $VmType = "Standard_D4_v2" }
-    if (-not $WORKER_REPLICAS) { $WORKER_REPLICAS = 4 }
-    if (-not $NUM_WORKERS) { $NUM_WORKERS = 4 }
-    
-    # Mount path defaults (if not in .env.example)
-    if (-not $DATA_DIR) { $DATA_DIR = "/mnt/blob/datasets" }
-    if (-not $CHECKPOINT_DIR) { $CHECKPOINT_DIR = "/mnt/blob/checkpoints" }
-    if (-not $APP_DIR) { $APP_DIR = "/app" }
-    if (-not $CACHE_DIR) { $CACHE_DIR = "/mnt/blobfusecache" }
-
-    if (-not $DATAPREP_RAY_CONFIG) { $DATAPREP_RAY_CONFIG = "k8s/raycluster-dataprep.yaml" }
-    if (-not $STORAGE_ACCOUNT_KEY) { $STORAGE_ACCOUNT_KEY = "" }
     if (-not $MAX_PREPROCESS_TASK_CONCURRENCY) { $MAX_PREPROCESS_TASK_CONCURRENCY = 3 }
 }
 
@@ -209,7 +188,7 @@ function Deploy-MonitoringStack {
     Write-Host "[DEPLOY] Deploying monitoring stack..." -ForegroundColor Yellow
     
     # Deploy monitoring stack
-    kubectl apply -f k8s/grafana-monitoring.yaml
+    kubectl apply -f k8s/monitoring/monitoring-stack.yaml
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[ERROR] Failed to deploy monitoring stack" -ForegroundColor Red
         return $false

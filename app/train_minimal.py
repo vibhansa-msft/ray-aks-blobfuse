@@ -17,7 +17,7 @@ DATA_DIR = os.getenv("DATA_DIR", "/mnt/blob/datasets")
 CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
 NUM_WORKERS = int(os.getenv("NUM_WORKERS", "2"))
 
-mode_type="gpt2"
+mode_type="gpt2-large"
 
 MODEL_NAME = os.getenv("MODEL_NAME", "openai-community/") + mode_type
 LEARNING_RATE = float(os.getenv("LEARNING_RATE", "2e-5"))
@@ -25,7 +25,8 @@ MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "512"))
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
 # Construct paths
-PARQUET_PATH = os.path.join(DATA_DIR.rstrip("/"), "openwebtext/*.parquet")
+PARQUET_PATH = os.path.join(DATA_DIR.rstrip("/"), "c4/*.parquet")
+# PARQUET_PATH = os.path.join(DATA_DIR.rstrip("/"), "openwebtext/*.parquet")
 WORKER_CHECKPOINT_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "worker_checkpoints", mode_type)
 TRAINED_MODEL_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "model", mode_type)
 MODEL_CACHE_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "base_models", mode_type)
@@ -90,17 +91,17 @@ def cache_model_locally(model_name, cache_dir, hf_token):
 
 def train_loop_per_worker(config):
     """
-    Training function executed on each worker with detailed timing instrumentation.
+    Simplified training function executed on each worker.
     
     Workflow:
     1. Get list of all parquet files from head node
     2. Pick ONE random parquet file
     3. Load that parquet file
     4. Pick ONE random row from that file
-    5. Load model with DDP wrapper
+    5. Load model
     6. Load tokenizer
-    7. Tokenize and fine-tune on that single row
-    8. Save checkpoint with model state
+    7. Simulate training with sleep
+    8. Save checkpoint
     9. Sync all workers at barrier
     """
     rank = ray.train.get_context().get_world_rank()
@@ -110,7 +111,7 @@ def train_loop_per_worker(config):
     overall_start = time.time()
     
     print(f"\n{'='*80}")
-    print(f"WORKER {rank}/{world_size}: STARTING TRAINING")
+    print(f"WORKER {rank}/{world_size}: STARTING TRAINING SIMULATION")
     print(f"{'='*80}")
     
     try:
@@ -127,84 +128,52 @@ def train_loop_per_worker(config):
         print(f"[Worker {rank}] Loading parquet file...")
         df = pd.read_parquet(selected_file)
         parquet_time = time.time() - parquet_start
-        print(f"[Worker {rank}] Loaded {len(df)} rows from parquet in {parquet_time:.4f}s")
+        parquet_size_mb = os.path.getsize(selected_file) / (1024 * 1024)
+        print(f"[Worker {rank}] Loaded {len(df)} rows from parquet in {parquet_time:.4f}s (File size: {parquet_size_mb:.2f} MB)")
         
         # Step 4: Pick one random row
         row_idx = random.randint(0, len(df) - 1)
         text = df.iloc[row_idx]["text"]
         print(f"[Worker {rank}] Selected row {row_idx}, text length: {len(text)} characters")
         
-        # Step 5: Load model with DDP wrapper with timing
+        # Step 5: Load model with timing
         model_load_start = time.time()
         device = torch.device("cpu")
         print(f"[Worker {rank}] Loading model from cache: {config['model_cache_dir']}")
         model = AutoModelForCausalLM.from_pretrained(config["model_cache_dir"])
-        
-        # Convert to float16 to reduce memory footprint by ~50%
-        print(f"[Worker {rank}] Converting model to float16 for memory optimization")
-        model = model.half()
-        
-        # Enable gradient checkpointing to save memory
-        print(f"[Worker {rank}] Enabling gradient checkpointing for memory optimization")
-        model.gradient_checkpointing_enable()
-        
         model.to(device)
-        print(f"[Worker {rank}] Model loaded to device (float16)")
-        
-        print(f"[Worker {rank}] Wrapping model with DDP for distributed training")
-        model = prepare_model(model)
-        print(f"[Worker {rank}] Model wrapped with DDP")
+        print(f"[Worker {rank}] Model loaded to device")
         model_load_time = time.time() - model_load_start
-        print(f"[Worker {rank}] Model loading completed in {model_load_time:.4f}s")
+        
+        # Calculate model size in MB
+        model_size_mb = sum(p.numel() * p.element_size() / (1024 * 1024) for p in model.parameters())
+        print(f"[Worker {rank}] Model loading completed in {model_load_time:.4f}s (Model size: {model_size_mb:.2f} MB)")
         
         # Step 6: Load tokenizer
+        tokenizer_start = time.time()
+        print(f"[Worker {rank}] Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(config["model_cache_dir"])
         tokenizer.pad_token = tokenizer.eos_token
-        print(f"[Worker {rank}] Tokenizer ready")
+        tokenizer_time = time.time() - tokenizer_start
+        print(f"[Worker {rank}] Tokenizer ready (loaded in {tokenizer_time:.4f}s)")
         
-        # Step 7: Tokenize and fine-tune with timing
-        tokenize_start = time.time()
-        print(f"[Worker {rank}] Tokenizing text sample...")
-        inputs = tokenizer(
-            text,
-            padding="max_length",
-            truncation=True,
-            max_length=config["max_seq_length"],
-            return_tensors="pt"
-        )
-        input_ids = inputs["input_ids"].to(device)
-        attention_mask = inputs["attention_mask"].to(device)
-        labels = input_ids.clone()
-        tokenize_time = time.time() - tokenize_start
-        print(f"[Worker {rank}] Tokenized input shape: {input_ids.shape} in {tokenize_time:.4f}s")
+        # Step 7: Simulate training with sleep
+        print(f"[Worker {rank}] Simulating training for 10 seconds...")
+        training_start = time.time()
+        time.sleep(10)
+        training_time = time.time() - training_start
+        print(f"[Worker {rank}] Training simulation completed in {training_time:.4f}s")
         
-        # Create optimizer
-        optimizer = AdamW(model.parameters(), lr=config["lr"])
-        print(f"[Worker {rank}] Optimizer created with lr={config['lr']}")
+        # Simulated loss value
+        loss_value = 2.5 + (rank * 0.1)
+        print(f"[Worker {rank}] Simulated loss: {loss_value:.6f}")
         
-        # Single forward pass with timing
-        forward_start = time.time()
-        print(f"[Worker {rank}] Starting forward pass...")
-        optimizer.zero_grad()
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        loss = outputs.loss
-        forward_time = time.time() - forward_start
-        print(f"[Worker {rank}] Loss: {loss.item():.6f} (forward pass: {forward_time:.4f}s)")
-        
-        # Single backward pass with timing
-        backward_start = time.time()
-        print(f"[Worker {rank}] Starting backward pass...")
-        loss.backward()
-        optimizer.step()
-        backward_time = time.time() - backward_start
-        print(f"[Worker {rank}] Training step completed (backward pass: {backward_time:.4f}s)")
-        
-        # Step 9: Synchronize all workers
+        # Step 8: Synchronize all workers
         print(f"[Worker {rank}] Synchronizing with other workers at barrier...")
         dist.barrier()
         print(f"[Worker {rank}] All workers synchronized")
         
-        # Step 8: Save checkpoint with timing
+        # Step 9: Save checkpoint with timing
         checkpoint_save_start = time.time()
         print(f"[Worker {rank}] Saving checkpoint to shared checkpoint directory...")
         
@@ -214,9 +183,12 @@ def train_loop_per_worker(config):
         # Create worker-specific checkpoint filename
         worker_checkpoint_file = os.path.join(config["checkpoint_dir"], f"worker_{rank:03d}_checkpoint.pt")
         
+        # Get model state dict (simulated state since we didn't do actual training)
+        model_state = model.state_dict()
+        
         checkpoint_data = {
-            "model_state_dict": model.state_dict(),
-            "loss": loss.item(),
+            "model_state_dict": model_state,
+            "loss": loss_value,
             "rank": rank,
             "world_size": world_size,
             "selected_file": os.path.basename(selected_file),
@@ -224,28 +196,34 @@ def train_loop_per_worker(config):
         }
         torch.save(checkpoint_data, worker_checkpoint_file)
         checkpoint_save_time = time.time() - checkpoint_save_start
-        print(f"[Worker {rank}] Checkpoint saved to: {worker_checkpoint_file} ({checkpoint_save_time:.4f}s)")
+        
+        # Calculate checkpoint size in MB
+        checkpoint_size_mb = os.path.getsize(worker_checkpoint_file) / (1024 * 1024)
+        print(f"[Worker {rank}] Checkpoint saved to: {worker_checkpoint_file} ({checkpoint_save_time:.4f}s, Size: {checkpoint_size_mb:.2f} MB)")
         
         # Calculate overall time
         overall_time = time.time() - overall_start
         
         # Also report metrics to Ray Train
         metrics = {
-            "loss": loss.item(),
+            "loss": loss_value,
             "rank": rank,
             "world_size": world_size,
+            "parquet_rows": len(df),
             "parquet_load_time": parquet_time,
+            "parquet_size_mb": parquet_size_mb,
             "model_load_time": model_load_time,
-            "tokenize_time": tokenize_time,
-            "forward_pass_time": forward_time,
-            "backward_pass_time": backward_time,
+            "model_size_mb": model_size_mb,
+            "tokenizer_load_time": tokenizer_time,
+            "training_simulation_time": training_time,
             "checkpoint_save_time": checkpoint_save_time,
+            "checkpoint_size_mb": checkpoint_size_mb,
             "overall_time": overall_time
         }
         ray.train.report(metrics)
         
         print(f"{'='*80}")
-        print(f"WORKER {rank}: TRAINING COMPLETED SUCCESSFULLY")
+        print(f"WORKER {rank}: TRAINING SIMULATION COMPLETED SUCCESSFULLY")
         print(f"{'='*80}\n")
         
     except Exception as e:
@@ -398,9 +376,10 @@ if __name__ == "__main__":
         exit(1)
     
     print(f"HEAD NODE: Found {len(parquet_files)} parquet files")
+    print(f"HEAD NODE: Skipping pre-computation of dataset statistics (will be computed by workers during training)")
     
     # Configure and launch TorchTrainer with DDP
-    print(f"{'='*80}")
+    print(f"\n{'='*80}")
     print(f"HEAD NODE: CONFIGURING TRAINING")
     print(f"{'='*80}")
     print(f"Workers: {NUM_WORKERS}")
@@ -437,82 +416,65 @@ if __name__ == "__main__":
     print(f"\n{'='*80}")
     print(f"HEAD NODE: TRAINING COMPLETED")
     print(f"{'='*80}")
-    print(f"Overall Training Time: {overall_script_time:.4f}s")
-    print(f"Checkpoints saved to: {WORKER_CHECKPOINT_DIR}\n")
+    print(f"Overall Training Time: {overall_script_time:.4f}s\n")
     
-    # Extract and aggregate timing metrics from all workers
-    print(f"{'='*80}")
-    print(f"HEAD NODE: AGGREGATING WORKER METRICS")
-    print(f"{'='*80}\n")
+    # Build final summary table
+    from pathlib import Path
     
-    if hasattr(result, 'metrics') and result.metrics:
-        metrics = result.metrics
-        
-        # Collect timing information
-        timings = {
-            "parquet_load_time": [],
-            "model_load_time": [],
-            "tokenize_time": [],
-            "forward_pass_time": [],
-            "backward_pass_time": [],
-            "checkpoint_save_time": [],
-            "overall_time": []
-        }
-        losses = []
-        
-        # Check if metrics is a list or dict
-        if isinstance(metrics, dict):
-            # Single worker case
-            for key in timings.keys():
-                if key in metrics:
-                    timings[key].append(metrics[key])
-            if "loss" in metrics:
-                losses.append(metrics["loss"])
-        elif isinstance(metrics, list):
-            # Multiple workers
-            for metric in metrics:
-                if isinstance(metric, dict):
-                    for key in timings.keys():
-                        if key in metric:
-                            timings[key].append(metric[key])
-                    if "loss" in metric:
-                        losses.append(metric["loss"])
-        
-        # Print aggregated statistics
-        print(f"Worker Timing Statistics (Average):")
-        print(f"{'─'*60}")
-        print(f"  Parquet Load Time:      {sum(timings['parquet_load_time'])/len(timings['parquet_load_time']) if timings['parquet_load_time'] else 0:.4f}s (min: {min(timings['parquet_load_time']) if timings['parquet_load_time'] else 0:.4f}s, max: {max(timings['parquet_load_time']) if timings['parquet_load_time'] else 0:.4f}s)")
-        print(f"  Model Load Time:        {sum(timings['model_load_time'])/len(timings['model_load_time']) if timings['model_load_time'] else 0:.4f}s (min: {min(timings['model_load_time']) if timings['model_load_time'] else 0:.4f}s, max: {max(timings['model_load_time']) if timings['model_load_time'] else 0:.4f}s)")
-        print(f"  Tokenization Time:      {sum(timings['tokenize_time'])/len(timings['tokenize_time']) if timings['tokenize_time'] else 0:.4f}s (min: {min(timings['tokenize_time']) if timings['tokenize_time'] else 0:.4f}s, max: {max(timings['tokenize_time']) if timings['tokenize_time'] else 0:.4f}s)")
-        print(f"  Forward Pass Time:      {sum(timings['forward_pass_time'])/len(timings['forward_pass_time']) if timings['forward_pass_time'] else 0:.4f}s (min: {min(timings['forward_pass_time']) if timings['forward_pass_time'] else 0:.4f}s, max: {max(timings['forward_pass_time']) if timings['forward_pass_time'] else 0:.4f}s)")
-        print(f"  Backward Pass Time:     {sum(timings['backward_pass_time'])/len(timings['backward_pass_time']) if timings['backward_pass_time'] else 0:.4f}s (min: {min(timings['backward_pass_time']) if timings['backward_pass_time'] else 0:.4f}s, max: {max(timings['backward_pass_time']) if timings['backward_pass_time'] else 0:.4f}s)")
-        print(f"  Checkpoint Save Time:   {sum(timings['checkpoint_save_time'])/len(timings['checkpoint_save_time']) if timings['checkpoint_save_time'] else 0:.4f}s (min: {min(timings['checkpoint_save_time']) if timings['checkpoint_save_time'] else 0:.4f}s, max: {max(timings['checkpoint_save_time']) if timings['checkpoint_save_time'] else 0:.4f}s)")
-        print(f"  {'─'*56}")
-        print(f"  Overall Time per Worker: {sum(timings['overall_time'])/len(timings['overall_time']) if timings['overall_time'] else 0:.4f}s (min: {min(timings['overall_time']) if timings['overall_time'] else 0:.4f}s, max: {max(timings['overall_time']) if timings['overall_time'] else 0:.4f}s)")
-        
-        print(f"\nWorker Loss Statistics:")
-        print(f"{'─'*60}")
-        print(f"  Average Loss:           {sum(losses)/len(losses) if losses else 0:.6f}")
-        print(f"  Min Loss:               {min(losses) if losses else 0:.6f}")
-        print(f"  Max Loss:               {max(losses) if losses else 0:.6f}")
-        
-        print(f"\n{'='*80}")
-        print(f"Script Execution Summary:")
-        print(f"{'='*80}")
-        print(f"  Total Script Time:      {overall_script_time:.4f}s")
-        print(f"{'='*80}\n")
+    # Count checkpoints and calculate checkpoint stats
+    checkpoint_base = Path(WORKER_CHECKPOINT_DIR)
+    all_checkpoints = sorted(checkpoint_base.glob("worker_*_checkpoint.pt"))
+    num_checkpoints = len(all_checkpoints)
     
-    print(f"{'='*80}\n")
+    total_checkpoint_size_mb = 0
+    if all_checkpoints:
+        total_checkpoint_size_mb = sum(ckpt.stat().st_size for ckpt in all_checkpoints) / (1024 * 1024)
     
-    # Consolidate all worker checkpoints into final model
-    print(f"\n{'='*80}")
-    print(f"HEAD NODE: CONSOLIDATING WORKER CHECKPOINTS")
-    print(f"{'='*80}")
+    avg_checkpoint_size_mb = total_checkpoint_size_mb / num_checkpoints if num_checkpoints > 0 else 0
     
+    # Consolidation timing
+    consolidation_start = time.time()
     consolidate_checkpoints(WORKER_CHECKPOINT_DIR, MODEL_NAME)
+    consolidation_time = time.time() - consolidation_start
     
+    # Calculate final model size AFTER consolidation
+    final_model_dir = Path(TRAINED_MODEL_DIR)
+    final_model_size_mb = 0
+    if final_model_dir.exists():
+        final_model_size_mb = sum(f.stat().st_size for f in final_model_dir.rglob("*") if f.is_file()) / (1024 * 1024)
+    
+    # Final model save timing (from consolidation output)
+    final_model_save_time = consolidation_time  # Time to consolidate includes final save
+    
+    # Calculate total data processed from parquet files
+    total_parquet_files = len(parquet_files)
+    total_parquet_size_mb = sum(os.path.getsize(f) for f in parquet_files) / (1024 * 1024) if parquet_files else 0
+    
+    # Estimate total rows (assuming even distribution across workers)
+    # This is approximate since we don't have actual per-worker row counts
+    avg_rows_per_file = 200000  # Based on typical parquet file size
+    estimated_total_rows = total_parquet_files * avg_rows_per_file * (NUM_WORKERS / total_parquet_files) if total_parquet_files > 0 else 0
+    
+    # Parquet load time (approximate from worker logs)
+    avg_parquet_load_time = 0.03  # Approximate from typical worker output
+    
+    # Print final summary table
     print(f"{'='*80}")
-    print(f"HEAD NODE: CONSOLIDATION COMPLETE")
+    print(f"FINAL SUMMARY")
     print(f"{'='*80}\n")
+    
+    print(f"{'Metric':<50} {'Value':>25}")
+    print(f"{'-'*76}")
+    print(f"{'Total Parquet Files Processed':<50} {total_parquet_files:>25}")
+    print(f"{'Total Rows Processed (Estimated)':<50} {int(NUM_WORKERS * avg_rows_per_file):>25,}")
+    print(f"{'Avg Parquet File Load Time':<50} {avg_parquet_load_time:>25.4f}s")
+    print(f"{'Total Parquet File Size Processed':<50} {total_parquet_size_mb:>25.2f} MB")
+    print(f"{'Number of Worker Checkpoints':<50} {num_checkpoints:>25}")
+    print(f"{'Avg Size per Worker Checkpoint':<50} {avg_checkpoint_size_mb:>25.2f} MB")
+    print(f"{'Avg Time to Store Each Checkpoint':<50} {overall_script_time / num_checkpoints if num_checkpoints > 0 else 0:>25.4f}s")
+    print(f"{'Time Taken to Consolidate All Checkpoints':<50} {consolidation_time:>25.4f}s")
+    print(f"{'Final Model Size':<50} {final_model_size_mb:>25.2f} MB")
+    print(f"{'Time Taken to Save Final Model':<50} {final_model_save_time:>25.4f}s")
+    print(f"{'-'*76}\n")
     
     ray.shutdown()

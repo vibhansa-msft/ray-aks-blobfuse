@@ -6,12 +6,12 @@
 Load-EnvParameters
 
 Write-Host ""
-Write-Host "Ray Data Preparation Job Deployment" -ForegroundColor Cyan
+Write-Host "Ray Data Preparation Job Deployment ($DATAPREP_JOB_NAME)" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 
 # Clean up any existing data prep jobs
 Write-Host "Cleaning up existing data preparation jobs..."
-kubectl delete rayjob data-prep-job --ignore-not-found=true 2>$null | Out-Null
+kubectl delete rayjob $DATAPREP_JOB_NAME --ignore-not-found=true 2>$null | Out-Null
 
 # Ensure ConfigMap has the latest code (including new data scripts)
 Write-Host "Updating application code ConfigMap..."
@@ -20,7 +20,7 @@ kubectl create configmap hpo-app-code --from-file=app/ --from-file=data/ | Out-N
 Write-Host "ConfigMap updated with latest code." -ForegroundColor Green
 
 # Deploy the data preparation RayJob
-Write-Host "Deploying data preparation RayJob..."
+Write-Host "Deploying data preparation RayJob ($DATAPREP_JOB_NAME)..."
 
 # Prepare data preparation job YAML with path substitution
 $dataprepYaml = Get-Content "$DATAPREP_RAY_CONFIG" -Raw
@@ -84,15 +84,15 @@ while (-not $headReady -and $waitTime -lt $maxWait) {
     }
 }
 
-if ($headReady) {
-    Write-Host ""
-    Open-AllDashboards
-} else {
-    Write-Host "Ray head pod not ready after $maxWait seconds. Open dashboards manually:" -ForegroundColor Yellow
-    Write-Host "  .\open-dashboard.ps1" -ForegroundColor Gray
-}
+# if ($headReady) {
+#     Write-Host ""
+#     Open-AllDashboards
+# } else {
+#     Write-Host "Ray head pod not ready after $maxWait seconds. Open dashboards manually:" -ForegroundColor Yellow
+#     Write-Host "  .\open-dashboard.ps1" -ForegroundColor Gray
+# }
 
 # Start monitoring
 Write-Host ""
 Write-Host "Starting job monitoring..." -ForegroundColor Cyan
-& "$PSScriptRoot\monitor-jobs.ps1" -JobName "data-prep-job"
+& "$PSScriptRoot\monitor-jobs.ps1" -JobName $DATAPREP_JOB_NAME

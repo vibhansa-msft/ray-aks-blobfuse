@@ -34,6 +34,7 @@ spec:
       - datasets==2.16.0
       - pyarrow==14.0.0
       - transformers==4.36.0
+      - pandas>=1.3.0
     env_vars:
       DATA_DIR: "__DATA_DIR__"
       CHECKPOINT_DIR: "__CHECKPOINT_DIR__"

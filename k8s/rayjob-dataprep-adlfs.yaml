@@ -14,7 +14,7 @@ kind: RayJob
 # ========== METADATA ==========
 
 metadata:
-  name: data-prep-job
+  name: data-prep-job-adlfs
 
 # ========== RAY JOB SPECIFICATION ==========
 
@@ -33,12 +33,22 @@ spec:
   # Runtime environment variables and dependencies
   runtimeEnvYAML: |
     pip:
-      - adlfs==2025.8.0
-      - pyarrow==21.0.0
+      # Core dependencies for data preparation
+      - adlfs==2025.8.0          # Azure Data Lake File System for cloud storage access
+      - pyarrow==14.0.0          # Arrow and Parquet format support
+      - datasets==2.11.0         # HuggingFace datasets library (for streaming data)
+      - transformers>=4.35.0     # Required by datasets library
+      - pandas>=1.3.0            # Data manipulation and CSV support
+      - fsspec>=2022.1.0         # Filesystem abstraction (required by adlfs)
+      - azure-storage-blob>=12.0.0 # Azure Blob Storage SDK
     env_vars:
       AZURE_STORAGE_ACCOUNT_NAME: "__AZURE_STORAGE_ACCOUNT_NAME__"
       AZURE_STORAGE_ACCOUNT_KEY: "__AZURE_STORAGE_ACCOUNT_KEY__"
+      CONTAINER: "__CONTAINER__"
       MAX_PREPROCESS_TASK_CONCURRENCY: "__MAX_PREPROCESS_TASK_CONCURRENCY__"
+      DATA_DIR: "__DATA_DIR__"
+      CHECKPOINT_DIR: "__CHECKPOINT_DIR__"
+      PYTHONPATH: "__APP_DIR__"
 
   # ========== RAY CLUSTER SPECIFICATION ==========
 
