@@ -18,6 +18,7 @@ mountOptions:
   - -o ro
   - --file-cache-timeout-in-seconds=3600
   - --tmp-path=__CACHE_DIR__
+  - --preload
   - --log-level=LOG_DEBUG
   - --log-type=base
   - --log-file-path=/var/log/blobfuse-training.log
