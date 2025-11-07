@@ -161,7 +161,14 @@ $rayjobFile = if ($GPU -eq "true" -or $GPU -eq $true) { "k8s/rayjob-gpu.yaml" } 
 $rayjobYaml = Get-Content $rayjobFile -Raw
 
 # Substitute all placeholder tokens with actual paths (from .env.example)
-$rayjobYaml = $rayjobYaml -replace "__DATA_DIR__", $DATA_DIR -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR -replace "__APP_DIR__", $APP_DIR -replace "__CACHE_DIR__", $CACHE_DIR -replace "__NUM_WORKERS__", $NUM_WORKERS -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS
+$rayjobYaml = $rayjobYaml `
+    -replace "__DATA_DIR__", $DATA_DIR `
+    -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR `
+    -replace "__APP_DIR__", $APP_DIR `
+    -replace "__CACHE_DIR__", $CACHE_DIR `
+    -replace "__CHECKPOINT_CACHE__", $CHECKPOINT_CACHE `
+    -replace "__NUM_WORKERS__", $NUM_WORKERS `
+    -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS
 
 # Submit RayJob
 Write-Host "Submitting RayJob '$job'..."

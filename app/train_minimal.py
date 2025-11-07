@@ -10,16 +10,23 @@ import pandas as pd
 import torch.distributed as dist
 from ray.train.torch import TorchTrainer, prepare_model
 from ray.train import ScalingConfig, RunConfig, Checkpoint
-import tempfile
 
 # --- Configuration from Environment Variables ---
-DATA_DIR = os.getenv("DATA_DIR", "/mnt/blob/datasets")
+DATA_DIR = os.getenv("CHECKPOINT_DIR", "/mnt/blob/datasets")
 CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", "/mnt/blob/checkpoints")
 NUM_WORKERS = int(os.getenv("NUM_WORKERS", "2"))
 
-mode_type="gpt2-large"
+# -----------------------------------------------------
+# model_type="gpt2"
+# MODEL_NAME = "openai-community/" + model_type
+# -----------------------------------------------------
+model_type="gpt2-large"
+MODEL_NAME = "openai-community/" + model_type
+# -----------------------------------------------------
+# model_type="Mistral-7B-Instruct-v0.2"
+# MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
+# -----------------------------------------------------
 
-MODEL_NAME = os.getenv("MODEL_NAME", "openai-community/") + mode_type
 LEARNING_RATE = float(os.getenv("LEARNING_RATE", "2e-5"))
 MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "512"))
 HF_TOKEN = os.getenv("HF_TOKEN", "")
@@ -27,9 +34,9 @@ HF_TOKEN = os.getenv("HF_TOKEN", "")
 # Construct paths
 PARQUET_PATH = os.path.join(DATA_DIR.rstrip("/"), "c4/*.parquet")
 # PARQUET_PATH = os.path.join(DATA_DIR.rstrip("/"), "openwebtext/*.parquet")
-WORKER_CHECKPOINT_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "worker_checkpoints", mode_type)
-TRAINED_MODEL_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "model", mode_type)
-MODEL_CACHE_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "base_models", mode_type)
+WORKER_CHECKPOINT_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "worker_checkpoints", model_type)
+TRAINED_MODEL_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "model", model_type)
+MODEL_CACHE_DIR = os.path.join(CHECKPOINT_DIR.rstrip("/"), "base_models", model_type)
 
 print(f"\n{'='*80}")
 print(f"HEAD NODE: TRAINING CONFIGURATION")
@@ -91,18 +98,22 @@ def cache_model_locally(model_name, cache_dir, hf_token):
 
 def train_loop_per_worker(config):
     """
-    Simplified training function executed on each worker.
+    Distributed training function executed on each worker.
     
-    Workflow:
+    Workflow (5 epochs):
+    For each epoch:
     1. Get list of all parquet files from head node
     2. Pick ONE random parquet file
     3. Load that parquet file
     4. Pick ONE random row from that file
-    5. Load model
-    6. Load tokenizer
+    5. Load model (only once, reused across epochs)
+    6. Load tokenizer (only once, reused across epochs)
     7. Simulate training with sleep
-    8. Save checkpoint
-    9. Sync all workers at barrier
+    8. Synchronize all workers at barrier
+    9. Save synchronized checkpoint
+    
+    Finally:
+    - Report final metrics to head node
     """
     rank = ray.train.get_context().get_world_rank()
     world_size = ray.train.get_context().get_world_size()
@@ -111,119 +122,169 @@ def train_loop_per_worker(config):
     overall_start = time.time()
     
     print(f"\n{'='*80}")
-    print(f"WORKER {rank}/{world_size}: STARTING TRAINING SIMULATION")
+    print(f"WORKER {rank}/{world_size}: STARTING DISTRIBUTED TRAINING")
     print(f"{'='*80}")
     
     try:
-        # Step 1: Get parquet files list from config
+    # Get parquet files list from config
         parquet_files = config["parquet_files"]
-        print(f"[Worker {rank}] Received {len(parquet_files)} parquet files to choose from")
+        num_epochs = config.get("num_epochs", 20)
+        print(f"[Worker {rank}] Received {len(parquet_files)} parquet files")
+        print(f"[Worker {rank}] Training for {num_epochs} epochs\n")
         
-        # Step 2: Pick one random file
-        selected_file = random.choice(parquet_files)
-        print(f"[Worker {rank}] Randomly selected: {os.path.basename(selected_file)}")
+        # Get model cache directory from config
+        model_cache_dir = config["model_obj_ref"]["model_cache_dir"]
         
-        # Step 3: Load parquet file with timing
-        parquet_start = time.time()
-        print(f"[Worker {rank}] Loading parquet file...")
-        df = pd.read_parquet(selected_file)
-        parquet_time = time.time() - parquet_start
-        parquet_size_mb = os.path.getsize(selected_file) / (1024 * 1024)
-        print(f"[Worker {rank}] Loaded {len(df)} rows from parquet in {parquet_time:.4f}s (File size: {parquet_size_mb:.2f} MB)")
+        # Determine the device to use (GPU if available, otherwise CPU)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # Step 4: Pick one random row
-        row_idx = random.randint(0, len(df) - 1)
-        text = df.iloc[row_idx]["text"]
-        print(f"[Worker {rank}] Selected row {row_idx}, text length: {len(text)} characters")
+        # Load model in a memory-efficient way if not on GPU. 
+        if device == "cpu":
+            print(f"[Worker {rank}] Loading model on CPU, this may take time...")
+            # Load in half-precision (bfloat16) to save memory if CPU supports it
+            # If not, it falls back to float32 (which is ~14GB of RAM).
+            dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float32
+        else:
+            # On GPU, use bfloat16 for speed and VRAM efficiency
+            dtype = torch.bfloat16
         
-        # Step 5: Load model with timing
-        model_load_start = time.time()
-        device = torch.device("cpu")
-        print(f"[Worker {rank}] Loading model from cache: {config['model_cache_dir']}")
-        model = AutoModelForCausalLM.from_pretrained(config["model_cache_dir"])
-        model.to(device)
-        print(f"[Worker {rank}] Model loaded to device")
-        model_load_time = time.time() - model_load_start
+        # Load model and tokenizer from cache path
+        print(f"[Worker {rank}] Loading model from: {model_cache_dir}")
+        model_start = time.time()
+        model = AutoModelForCausalLM.from_pretrained(model_cache_dir, dtype=dtype, device_map="cpu")
+        model_load_time = time.time() - model_start
+        
+        tokenizer_start = time.time()
+        tokenizer = AutoTokenizer.from_pretrained(model_cache_dir)
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer_load_time = time.time() - tokenizer_start
+        
+        print(f"[Worker {rank}] Model loaded in {model_load_time:.4f}s")
+        print(f"[Worker {rank}] Tokenizer loaded in {tokenizer_load_time:.4f}s\n")
         
         # Calculate model size in MB
         model_size_mb = sum(p.numel() * p.element_size() / (1024 * 1024) for p in model.parameters())
-        print(f"[Worker {rank}] Model loading completed in {model_load_time:.4f}s (Model size: {model_size_mb:.2f} MB)")
+        print(f"[Worker {rank}] Model size: {model_size_mb:.2f} MB\n")
         
-        # Step 6: Load tokenizer
-        tokenizer_start = time.time()
-        print(f"[Worker {rank}] Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(config["model_cache_dir"])
-        tokenizer.pad_token = tokenizer.eos_token
-        tokenizer_time = time.time() - tokenizer_start
-        print(f"[Worker {rank}] Tokenizer ready (loaded in {tokenizer_time:.4f}s)")
+        # Tracking metrics across epochs
+        total_parquet_load_time = 0
+        total_parquet_rows = 0
+        total_training_time = 0
+        total_checkpoint_save_time = 0
+        total_parquet_size_mb = 0
+        epoch_losses = []
+        processed_files = []
         
-        # Step 7: Simulate training with sleep
-        print(f"[Worker {rank}] Simulating training for 10 seconds...")
-        training_start = time.time()
-        time.sleep(10)
-        training_time = time.time() - training_start
-        print(f"[Worker {rank}] Training simulation completed in {training_time:.4f}s")
-        
-        # Simulated loss value
-        loss_value = 2.5 + (rank * 0.1)
-        print(f"[Worker {rank}] Simulated loss: {loss_value:.6f}")
-        
-        # Step 8: Synchronize all workers
-        print(f"[Worker {rank}] Synchronizing with other workers at barrier...")
-        dist.barrier()
-        print(f"[Worker {rank}] All workers synchronized")
-        
-        # Step 9: Save checkpoint with timing
-        checkpoint_save_start = time.time()
-        print(f"[Worker {rank}] Saving checkpoint to shared checkpoint directory...")
-        
-        # Ensure checkpoint directory exists
-        os.makedirs(config["checkpoint_dir"], exist_ok=True)
-        
-        # Create worker-specific checkpoint filename
-        worker_checkpoint_file = os.path.join(config["checkpoint_dir"], f"worker_{rank:03d}_checkpoint.pt")
-        
-        # Get model state dict (simulated state since we didn't do actual training)
-        model_state = model.state_dict()
-        
-        checkpoint_data = {
-            "model_state_dict": model_state,
-            "loss": loss_value,
-            "rank": rank,
-            "world_size": world_size,
-            "selected_file": os.path.basename(selected_file),
-            "row_index": row_idx
-        }
-        torch.save(checkpoint_data, worker_checkpoint_file)
-        checkpoint_save_time = time.time() - checkpoint_save_start
-        
-        # Calculate checkpoint size in MB
-        checkpoint_size_mb = os.path.getsize(worker_checkpoint_file) / (1024 * 1024)
-        print(f"[Worker {rank}] Checkpoint saved to: {worker_checkpoint_file} ({checkpoint_save_time:.4f}s, Size: {checkpoint_size_mb:.2f} MB)")
+        # Training loop - multiple epochs
+        for epoch in range(num_epochs):
+            print(f"{'─'*80}")
+            print(f"[Worker {rank}] EPOCH {epoch + 1}/{num_epochs}")
+            print(f"{'─'*80}")
+            
+            # Pick one random parquet file for this epoch
+            selected_file = random.choice(parquet_files)
+            processed_files.append(os.path.basename(selected_file))
+            print(f"[Worker {rank}] Selected file: {os.path.basename(selected_file)}")
+            
+            # Load parquet file with timing
+            parquet_start = time.time()
+            df = pd.read_parquet(selected_file)
+            parquet_time = time.time() - parquet_start
+            parquet_size_mb = os.path.getsize(selected_file) / (1024 * 1024)
+            
+            print(f"[Worker {rank}] Loaded {len(df)} rows in {parquet_time:.4f}s (File size: {parquet_size_mb:.2f} MB)")
+            
+            # Pick one random row
+            row_idx = random.randint(0, len(df) - 1)
+            text = df.iloc[row_idx]["text"]
+            print(f"[Worker {rank}] Selected row {row_idx}, text length: {len(text)} characters")
+            
+            # Simulate training with sleep
+            print(f"[Worker {rank}] Simulating training for 5 seconds...")
+            training_start = time.time()
+            time.sleep(5)
+            training_time = time.time() - training_start
+            print(f"[Worker {rank}] Training simulation completed in {training_time:.4f}s")
+            
+            # Simulated loss value (decreasing over epochs)
+            loss_value = 1.0 + (rank * 0.1) - (epoch * 0.05)
+            epoch_losses.append(loss_value)
+            
+            # Accumulate metrics
+            total_parquet_load_time += parquet_time
+            total_parquet_rows += len(df)
+            total_training_time += training_time
+            total_parquet_size_mb += parquet_size_mb
+            
+            # Synchronize all workers at barrier (after each epoch)
+            print(f"[Worker {rank}] Syncing with other workers at barrier...")
+            dist.barrier()
+            print(f"[Worker {rank}] All workers synchronized {epoch}")
+            
+            # Save synchronized checkpoint after each epoch (overwrite same file)
+            checkpoint_save_start = time.time()
+            print(f"[Worker {rank}] Saving epoch checkpoint {epoch}...")
+            
+            # Ensure checkpoint directory exists
+            os.makedirs(config["checkpoint_dir"], exist_ok=True)
+            
+            # Use same checkpoint filename for all epochs (overwrite each time)
+            worker_checkpoint_file = os.path.join(config["checkpoint_dir"], f"worker_{rank:03d}_checkpoint.pt")
+            
+            # Get model state dict
+            model_state = model.state_dict()
+            
+            checkpoint_data = {
+                "model_state_dict": model_state,
+                "epoch": epoch,
+                "loss": loss_value,
+                "rank": rank,
+                "world_size": world_size,
+                "selected_file": os.path.basename(selected_file),
+                "row_index": row_idx
+            }
+            torch.save(checkpoint_data, worker_checkpoint_file)
+            checkpoint_save_time = time.time() - checkpoint_save_start
+            checkpoint_size_mb = os.path.getsize(worker_checkpoint_file) / (1024 * 1024)
+            
+            print(f"[Worker {rank}] Checkpoint {epoch} saved ({checkpoint_save_time:.4f}s, Size: {checkpoint_size_mb:.2f} MB)\n")
+            
+            total_checkpoint_save_time += checkpoint_save_time
         
         # Calculate overall time
         overall_time = time.time() - overall_start
+        avg_epoch_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0
         
-        # Also report metrics to Ray Train
+        # Also report final metrics to Ray Train
         metrics = {
-            "loss": loss_value,
+            "loss": avg_epoch_loss,
             "rank": rank,
             "world_size": world_size,
-            "parquet_rows": len(df),
-            "parquet_load_time": parquet_time,
-            "parquet_size_mb": parquet_size_mb,
+            "num_epochs": num_epochs,
             "model_load_time": model_load_time,
+            "tokenizer_load_time": tokenizer_load_time,
             "model_size_mb": model_size_mb,
-            "tokenizer_load_time": tokenizer_time,
-            "training_simulation_time": training_time,
-            "checkpoint_save_time": checkpoint_save_time,
-            "checkpoint_size_mb": checkpoint_size_mb,
+            "total_parquet_rows": total_parquet_rows,
+            "avg_parquet_rows_per_epoch": total_parquet_rows / num_epochs,
+            "total_parquet_load_time": total_parquet_load_time,
+            "avg_parquet_load_time": total_parquet_load_time / num_epochs,
+            "total_parquet_size_mb": total_parquet_size_mb,
+            "total_training_time": total_training_time,
+            "avg_training_time_per_epoch": total_training_time / num_epochs,
+            "total_checkpoint_save_time": total_checkpoint_save_time,
+            "avg_checkpoint_save_time": total_checkpoint_save_time / num_epochs,
             "overall_time": overall_time
         }
         ray.train.report(metrics)
         
+        print(f"\n{'='*80}")
+        print(f"WORKER {rank}: TRAINING COMPLETED SUCCESSFULLY")
         print(f"{'='*80}")
-        print(f"WORKER {rank}: TRAINING SIMULATION COMPLETED SUCCESSFULLY")
+        print(f"[Worker {rank}] Total Epochs: {num_epochs}")
+        print(f"[Worker {rank}] Total Rows Processed: {total_parquet_rows}")
+        print(f"[Worker {rank}] Average Loss: {avg_epoch_loss:.6f}")
+        print(f"[Worker {rank}] Total Training Time: {overall_time:.4f}s")
+        print(f"[Worker {rank}] Files Processed: {', '.join(processed_files)}")
         print(f"{'='*80}\n")
         
     except Exception as e:
@@ -239,10 +300,11 @@ def train_loop_per_worker(config):
 def consolidate_checkpoints(checkpoint_dir, model_name):
     """
     Consolidate all worker checkpoints into a final model.
+    Each worker has ONE final checkpoint (from last epoch).
     
     Workflow:
-    1. Load the base model
-    2. Find all worker checkpoint files (worker_*.pt files)
+    1. Find all worker checkpoint files (worker_*.pt files)
+    2. Load the base model
     3. Average all worker model states
     4. Save final consolidated model
     """
@@ -258,10 +320,10 @@ def consolidate_checkpoints(checkpoint_dir, model_name):
         print(f"[Consolidation] No worker checkpoint files found. Skipping consolidation.")
         return
     
-    print(f"[Consolidation] Found {len(all_checkpoints)} worker checkpoint files:")
+    print(f"[Consolidation] Found {len(all_checkpoints)} worker checkpoint files (one per worker)")
 
     # Load all checkpoint states
-    print(f"\n[Consolidation] Loading all checkpoint states...")
+    print(f"\n[Consolidation] Loading checkpoint states from all workers...")
     checkpoint_states = []
     for i, ckpt_file in enumerate(all_checkpoints):
         try:
@@ -269,9 +331,11 @@ def consolidate_checkpoints(checkpoint_dir, model_name):
             checkpoint_states.append({
                 "file": str(ckpt_file),
                 "rank": checkpoint_data.get("rank", i),
+                "epoch": checkpoint_data.get("epoch", 0),
                 "loss": checkpoint_data.get("loss", 0),
                 "state_dict": checkpoint_data.get("model_state_dict", checkpoint_data)
             })
+            print(f"  ✓ Worker {i}: Epoch {checkpoint_data.get('epoch', 0)}, Loss {checkpoint_data.get('loss', 0):.6f}")
         except Exception as e:
             print(f"  ERROR loading {ckpt_file.name}: {e}")
     
@@ -290,7 +354,7 @@ def consolidate_checkpoints(checkpoint_dir, model_name):
     base_state = base_model.state_dict()
     
     # Average all checkpoint states
-    print(f"[Consolidation] Averaging {len(checkpoint_states)} checkpoint states...")
+    print(f"[Consolidation] Averaging {len(checkpoint_states)} worker checkpoints...")
     averaged_state = {}
     
     for param_name in base_state.keys():
@@ -389,6 +453,15 @@ if __name__ == "__main__":
     print(f"Max Sequence Length: {MAX_SEQ_LENGTH}")
     print(f"{'='*80}\n")
     
+    # No pre-loading on head node
+    print(f"HEAD NODE: Skipping model loading on head node")
+    print(f"HEAD NODE: Each worker will load model from: {MODEL_CACHE_DIR}\n")
+    
+    # Pass model cache directory to workers
+    model_obj_ref = {
+        "model_cache_dir": MODEL_CACHE_DIR
+    }
+    
     trainer = TorchTrainer(
         train_loop_per_worker=train_loop_per_worker,
         train_loop_config={
@@ -397,14 +470,17 @@ if __name__ == "__main__":
             "lr": LEARNING_RATE,
             "max_seq_length": MAX_SEQ_LENGTH,
             "parquet_files": parquet_files,  # Send file list to all workers
-            "checkpoint_dir": WORKER_CHECKPOINT_DIR  # Send checkpoint directory to all workers
+            "checkpoint_dir": WORKER_CHECKPOINT_DIR,  # Send checkpoint directory to all workers
+            "num_epochs": 10,  # Run 2 epochs
+            "model_obj_ref": model_obj_ref  # Pass object reference to all workers
         },
         scaling_config=ScalingConfig(
             num_workers=NUM_WORKERS,
             use_gpu=False
         ),
         run_config=RunConfig(
-            storage_path=WORKER_CHECKPOINT_DIR
+            storage_path=WORKER_CHECKPOINT_DIR,
+            sync_config=None  # Disable Ray's checkpoint sync (workers write directly to BlobFuse)
         )
     )
     
@@ -458,6 +534,37 @@ if __name__ == "__main__":
     # Parquet load time (approximate from worker logs)
     avg_parquet_load_time = 0.03  # Approximate from typical worker output
     
+    # Extract model loading metrics from training result
+    model_load_times = []
+    tokenizer_load_times = []
+    model_sizes = []
+    
+    if result and hasattr(result, 'metrics') and result.metrics:
+        metrics_dict = result.metrics
+        if isinstance(metrics_dict, dict):
+            # Single result
+            if "model_load_time" in metrics_dict:
+                model_load_times.append(metrics_dict["model_load_time"])
+            if "tokenizer_load_time" in metrics_dict:
+                tokenizer_load_times.append(metrics_dict["tokenizer_load_time"])
+            if "model_size_mb" in metrics_dict:
+                model_sizes.append(metrics_dict["model_size_mb"])
+        elif isinstance(metrics_dict, list):
+            # Multiple worker results
+            for worker_result in metrics_dict:
+                if isinstance(worker_result, dict):
+                    if "model_load_time" in worker_result:
+                        model_load_times.append(worker_result["model_load_time"])
+                    if "tokenizer_load_time" in worker_result:
+                        tokenizer_load_times.append(worker_result["tokenizer_load_time"])
+                    if "model_size_mb" in worker_result:
+                        model_sizes.append(worker_result["model_size_mb"])
+    
+    # Calculate averages
+    avg_model_load_time = sum(model_load_times) / len(model_load_times) if model_load_times else 0
+    avg_tokenizer_load_time = sum(tokenizer_load_times) / len(tokenizer_load_times) if tokenizer_load_times else 0
+    avg_model_size_mb = sum(model_sizes) / len(model_sizes) if model_sizes else 0
+    
     # Print final summary table
     print(f"{'='*80}")
     print(f"FINAL SUMMARY")
@@ -465,16 +572,29 @@ if __name__ == "__main__":
     
     print(f"{'Metric':<50} {'Value':>25}")
     print(f"{'-'*76}")
-    print(f"{'Total Parquet Files Processed':<50} {total_parquet_files:>25}")
-    print(f"{'Total Rows Processed (Estimated)':<50} {int(NUM_WORKERS * avg_rows_per_file):>25,}")
-    print(f"{'Avg Parquet File Load Time':<50} {avg_parquet_load_time:>25.4f}s")
-    print(f"{'Total Parquet File Size Processed':<50} {total_parquet_size_mb:>25.2f} MB")
-    print(f"{'Number of Worker Checkpoints':<50} {num_checkpoints:>25}")
-    print(f"{'Avg Size per Worker Checkpoint':<50} {avg_checkpoint_size_mb:>25.2f} MB")
-    print(f"{'Avg Time to Store Each Checkpoint':<50} {overall_script_time / num_checkpoints if num_checkpoints > 0 else 0:>25.4f}s")
-    print(f"{'Time Taken to Consolidate All Checkpoints':<50} {consolidation_time:>25.4f}s")
-    print(f"{'Final Model Size':<50} {final_model_size_mb:>25.2f} MB")
-    print(f"{'Time Taken to Save Final Model':<50} {final_model_save_time:>25.4f}s")
+    print(f"{'Model Loading (Per Worker Average)':<50} {'':<25}")
+    print(f"  {'Model Size':<48} {avg_model_size_mb:>25.2f} MB")
+    print(f"  {'Model Load Time':<48} {avg_model_load_time:>25.4f}s")
+    print(f"  {'Tokenizer Load Time':<48} {avg_tokenizer_load_time:>25.4f}s")
+    print(f"{'-'*76}")
+    print(f"{'Model Configuration':<50} {'':<25}")
+    print(f"  {'Model Cache Dir':<48} {MODEL_CACHE_DIR:>25}")
+    print(f"{'-'*76}")
+    print(f"{'Data Processing':<50} {'':<25}")
+    print(f"  {'Total Parquet Files Processed':<48} {total_parquet_files:>25}")
+    print(f"  {'Total Rows Processed (Estimated)':<48} {int(NUM_WORKERS * avg_rows_per_file):>25,}")
+    print(f"  {'Avg Parquet File Load Time':<48} {avg_parquet_load_time:>25.4f}s")
+    print(f"  {'Total Parquet File Size Processed':<48} {total_parquet_size_mb:>25.2f} MB")
+    print(f"{'-'*76}")
+    print(f"{'Checkpointing':<50} {'':<25}")
+    print(f"  {'Number of Worker Checkpoints':<48} {num_checkpoints:>25}")
+    print(f"  {'Avg Size per Worker Checkpoint':<48} {avg_checkpoint_size_mb:>25.2f} MB")
+    print(f"  {'Avg Time to Store Each Checkpoint':<48} {overall_script_time / num_checkpoints if num_checkpoints > 0 else 0:>25.4f}s")
+    print(f"  {'Time Taken to Consolidate All Checkpoints':<48} {consolidation_time:>25.4f}s")
+    print(f"{'-'*76}")
+    print(f"{'Final Model':<50} {'':<25}")
+    print(f"  {'Final Model Size':<48} {final_model_size_mb:>25.2f} MB")
+    print(f"  {'Time Taken to Save Final Model':<48} {final_model_save_time:>25.4f}s")
     print(f"{'-'*76}\n")
     
     ray.shutdown()

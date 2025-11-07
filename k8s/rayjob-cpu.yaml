@@ -22,7 +22,16 @@ metadata:
 
 spec:
   # ===== Job Configuration =====
+  selector:
+    matchLabels:
+      component: ray-worker
 
+  template:
+    metadata:
+      labels:
+        component: ray-worker
+        ray.io/node-type: worker 
+        
   # Shutdown the Ray cluster when job finishes
   shutdownAfterJobFinishes: true
   
@@ -90,17 +99,21 @@ spec:
             # Resource requests for proper scheduling and autoscaling
             resources:
               requests:
-                cpu: "20000m"      # 20 CPU cores for head node
-                memory: "32Gi"     # 32GB memory for head node
+                cpu: "8000m"       # 8 CPU cores for head node
+                memory: "16Gi"     # 16GB memory for head node
               limits:
-                cpu: "32000m"      # Max 32 CPU cores
-                memory: "64Gi"    # Max 64GB memory
+                cpu: "16000m"      # Max 16 CPU cores
+                memory: "32Gi"     # Max 32GB memory
             
             # Ray object spilling configuration for memory management
             env:
               - name: RAY_OBJECT_SPILLING_CONFIG
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+              - name: TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S
+                value: "300"
+              - name: RAY_TRAIN_TORCH_BACKEND
+                value: "nccl"
             
             # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:
@@ -146,6 +159,15 @@ spec:
       # maxReplicas: 100
       template:
         spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:    
+                      ray.io/cluster: hpo-job-cpu
+                      ray.io/group-name: cpu-group
+                    topologyKey: "kubernetes.io/hostname" # Enforce anti-affinity at the node level
+
           initContainers:
           - name: setup-cache-directories
             image: busybox:1.28
@@ -170,17 +192,27 @@ spec:
             # Resource requests for proper scheduling and autoscaling
             resources:
               requests:
-                cpu: "32000m"     # 32 CPU cores per worker (Standard_D48ds_v5 has 48 cores)
-                memory: "140Gi"    # 140GB memory per worker
+                cpu: "40000m"      # 45 CPU cores per worker
+                memory: "120Gi"     # 140GB memory per worker
               limits:
-                cpu: "40000m"     # Max 40 CPU cores per worker
-                memory: "160Gi"    # Max 160GB memory per worker (leaves 12GB headroom on 192GB node)
-            
+                cpu: "40000m"      # 45 CPU cores per worker
+                memory: "120Gi"     # 140GB memory per worker
+            command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  # The operator automatically sets RAY_ADDRESS to point to the head service.
+                  ray start --address=$RAY_ADDRESS --block \
+                      --num-cpus=40 \
+                      --memory=120Gi \
+                      --object-store-memory=80Gi        
+
             # Ray object spilling for memory management
             env:
               - name: RAY_OBJECT_SPILLING_CONFIG
                 value: |
                   {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
+              - name: TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S
+                value: "300"
             
             # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:

@@ -10,7 +10,7 @@ import pathlib
 
 dataset = "c4"
 dataset_config = "en"  # Config name for C4 dataset (e.g., 'en', 'realnewslike', 'en.noblocklist', 'en.noclean')
-NUM_EXAMPLES = 30000000  # Total dataset has 364,613,570 rows. We choose only 30M to conserve space. Total size on disk is ~400GB data
+NUM_EXAMPLES = 40000000  # Total dataset has 364,613,570 rows. We choose only 40M to conserve space. Total size on disk is ~400GB data
 
 # dataset = "openwebtext"
 # dataset_config = ""
