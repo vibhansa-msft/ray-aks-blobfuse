@@ -28,7 +28,7 @@ spec:
   ttlSecondsAfterFinished: 1800
   
   # Entry point command - can be customized for different datasets
-  entrypoint: "python /app/train_minimal.py"
+  entrypoint: "python /app/train_new.py"
 
   # Runtime environment variables and dependencies
   runtimeEnvYAML: |

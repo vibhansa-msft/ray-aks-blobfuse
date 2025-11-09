@@ -184,7 +184,7 @@ def train_loop_per_worker(config):
             # Pick one random parquet file for this epoch
             selected_file = random.choice(parquet_files)
             processed_files.append(os.path.basename(selected_file))
-            print(f"[Worker {rank}] Selected file: {os.path.basename(selected_file)}")
+            # print(f"[Worker {rank}] Selected file: {os.path.basename(selected_file)}")
             
             # Load parquet file with timing
             parquet_start = time.time()
@@ -193,11 +193,10 @@ def train_loop_per_worker(config):
             parquet_size_mb = os.path.getsize(selected_file) / (1024 * 1024)
             
             print(f"[Worker {rank}] Loaded {len(df)} rows in {parquet_time:.4f}s (File size: {parquet_size_mb:.2f} MB)")
-            
-            # Pick one random row
             row_idx = random.randint(0, len(df) - 1)
             text = df.iloc[row_idx]["text"]
-            print(f"[Worker {rank}] Selected row {row_idx}, text length: {len(text)} characters")
+                
+            # print(f"[Worker {rank}] Selected row {row_idx}, text length: {len(text)} characters")
             
             # Simulate training with sleep
             print(f"[Worker {rank}] Simulating training for 5 seconds...")
