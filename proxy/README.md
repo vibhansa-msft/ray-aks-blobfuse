@@ -118,6 +118,8 @@ for obj in response.get('Contents', []):
 s3.delete_object(Bucket='mybucket', Key='test.txt')
 ```
 
+**Full example script**: See [example_usage.py](example_usage.py)
+
 ## Kubernetes Deployment
 
 ### Prerequisites
@@ -126,7 +128,22 @@ s3.delete_object(Bucket='mybucket', Key='test.txt')
 - Azure Storage Account
 - Storage account key
 
-### Deploy the Proxy
+### Quick Deploy (Recommended)
+
+Use the deployment helper script:
+
+```bash
+cd k8s
+./deploy-proxy.sh
+```
+
+The script will:
+- Prompt for Azure storage credentials
+- Create necessary secrets and ConfigMaps
+- Deploy the proxy service
+- Display connection information
+
+### Manual Deploy the Proxy
 
 1. **Create the secret with your storage credentials:**
 
