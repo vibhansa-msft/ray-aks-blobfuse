@@ -85,7 +85,8 @@ class S3Handler:
             )
             
         except Exception as e:
-            if "not found" in str(e).lower():
+            # Check for Azure ResourceNotFoundError
+            if "ResourceNotFoundError" in str(type(e).__name__):
                 raise HTTPException(status_code=404, detail="NoSuchKey")
             logger.error(f"Error in GET object: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -125,7 +126,8 @@ class S3Handler:
             )
             
         except Exception as e:
-            if "not found" in str(e).lower():
+            # Check for Azure ResourceNotFoundError
+            if "ResourceNotFoundError" in str(type(e).__name__):
                 raise HTTPException(status_code=404, detail="NoSuchKey")
             logger.error(f"Error in HEAD object: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))

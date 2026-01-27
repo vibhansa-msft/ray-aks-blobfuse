@@ -66,8 +66,11 @@ class AzureFilesAdapter:
             try:
                 directory_client = share_client.get_directory_client(current_path)
                 directory_client.create_directory()
-            except Exception:
-                # Directory might already exist
+            except Exception as e:
+                # Directory might already exist - check for specific error
+                if "ResourceExists" not in str(type(e).__name__):
+                    # Re-raise if it's not a "directory already exists" error
+                    logger.debug(f"Directory creation returned: {e}")
                 pass
     
     def put_object(self, bucket_name: str, key: str, data: BinaryIO,
@@ -181,7 +184,7 @@ class AzureFilesAdapter:
                 try:
                     directory_client = share_client.get_directory_client(prefix_dir)
                     list_directory(directory_client, prefix_dir)
-                except:
+                except ResourceNotFoundError:
                     # Directory doesn't exist, return empty list
                     pass
             else:

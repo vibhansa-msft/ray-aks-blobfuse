@@ -99,5 +99,5 @@ metadata:
   name: azure-storage-secret
 type: Opaque
 stringData:
-  storage-account-name: "vibhansaraystorage"  # Replace with your storage account
+  storage-account-name: ""  # Replace with your storage account name
   storage-account-key: ""  # Replace with your storage account key
