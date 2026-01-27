@@ -1,5 +1,6 @@
 """S3 to Azure Storage Proxy Server."""
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -16,17 +17,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(title="S3 to Azure Storage Proxy")
-
 # Global configuration and handler
 config = None
 s3_handler = None
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize proxy on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan."""
     global config, s3_handler
     
     try:
@@ -54,6 +52,15 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to start proxy server: {str(e)}")
         raise
+    
+    yield
+    
+    # Cleanup (if needed)
+    logger.info("Shutting down proxy server")
+
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="S3 to Azure Storage Proxy", lifespan=lifespan)
 
 
 @app.get("/health")

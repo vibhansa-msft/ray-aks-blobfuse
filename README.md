@@ -2,6 +2,14 @@
 
 A complete solution for running distributed Ray workloads on Azure Kubernetes Service with Azure Blob Storage integration and comprehensive monitoring.
 
+## ✨ Features
+
+- **Ray Distributed Computing**: Run distributed ML workloads on AKS
+- **Azure Storage Integration**: Direct BlobFuse2 mounts for Azure Blob Storage
+- **S3 to Azure Proxy**: NEW! Translate S3 API calls to Azure Blob Storage or Azure Files
+- **Comprehensive Monitoring**: Built-in Grafana and Prometheus dashboards
+- **GPU Support**: Optional GPU-based training on AKS
+
 ## 🚀 Quick Start
 
 ```powershell
@@ -39,6 +47,7 @@ A complete solution for running distributed Ray workloads on Azure Kubernetes Se
 | **`app/requirements.txt`** | Python dependencies |
 | **`app/train_hpo.py`** | Hyperparameter optimization training code |
 | **`data/prepare_ag_news.py`** | Data preparation script |
+| **`proxy/`** | S3 to Azure Storage proxy service |
 
 ### ☸️ Kubernetes Manifests (`k8s/`)
 
@@ -47,6 +56,7 @@ A complete solution for running distributed Ray workloads on Azure Kubernetes Se
 | **`rayjob-cpu.yaml`** | CPU-based Ray job definition |
 | **`rayjob-gpu.yaml`** | GPU-based Ray job definition |
 | **`storageclass-blobfuse2.yaml`** | Azure Blob storage classes |
+| **`s3-proxy-deployment.yaml`** | S3 to Azure Storage proxy deployment |
 | **`pvc-blob.yaml`** | Persistent volume claims for datasets |
 | **`nvidia-device-plugin.yaml`** | NVIDIA GPU support |
 | **`grafana-monitoring.yaml`** | Grafana + Prometheus monitoring stack |
@@ -149,6 +159,50 @@ A complete solution for running distributed Ray workloads on Azure Kubernetes Se
 - **Network:** Bandwidth usage, transfer rates, total data moved
 - **Storage:** Object store utilization, data spilling
 - **Jobs:** Active tasks, completion status, failure rates
+
+## 🔌 S3 to Azure Storage Proxy
+
+The proxy service enables applications using S3 APIs (e.g., boto3) to seamlessly work with Azure storage backends.
+
+### Features
+- **S3 API Compatibility**: Supports PUT, GET, DELETE, HEAD, and LIST operations
+- **Dual Backend Support**: Switch between Azure Blob Storage and Azure Files
+- **Easy Configuration**: Environment variable-based configuration
+- **Kubernetes Ready**: Includes deployment manifests
+
+### Quick Start with Proxy
+
+1. **Deploy the proxy:**
+```bash
+# Update storage credentials in k8s/s3-proxy-deployment.yaml
+kubectl apply -f k8s/s3-proxy-deployment.yaml
+```
+
+2. **Configure your S3 client to use the proxy:**
+```python
+import boto3
+
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://s3-azure-proxy:5000',
+    aws_access_key_id='dummy',
+    aws_secret_access_key='dummy'
+)
+
+# Now use S3 API as normal - it will be translated to Azure!
+s3.put_object(Bucket='mybucket', Key='test.txt', Body=b'Hello World')
+```
+
+3. **Switch between Blob and Files backend:**
+
+Edit the deployment and change `STORAGE_BACKEND`:
+```yaml
+env:
+- name: STORAGE_BACKEND
+  value: "blob"  # or "files" for Azure Files
+```
+
+📖 **Full proxy documentation**: See [proxy/README.md](proxy/README.md)
 
 ## 🔧 Configuration
 

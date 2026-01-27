@@ -59,7 +59,8 @@ def test_bucket_mapping():
     
     assert config.get_container_name("bucket1") == "container1"
     assert config.get_container_name("bucket2") == "container2"
-    assert config.get_container_name("unknown") == "datasets"  # default
+    # When no wildcard and no match, returns bucket name itself
+    assert config.get_container_name("unknown") == "unknown"
 
 
 def test_wildcard_mapping():
