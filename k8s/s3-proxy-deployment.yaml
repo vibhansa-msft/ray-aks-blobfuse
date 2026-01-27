@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-azure-proxy
+  labels:
+    app: s3-azure-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: s3-azure-proxy
+  template:
+    metadata:
+      labels:
+        app: s3-azure-proxy
+    spec:
+      containers:
+      - name: proxy
+        image: python:3.11-slim
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: PROXY_HOST
+          value: "0.0.0.0"
+        - name: PROXY_PORT
+          value: "5000"
+        - name: STORAGE_BACKEND
+          value: "blob"  # Change to "files" for Azure Files
+        - name: STORAGE_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: azure-storage-secret
+              key: storage-account-name
+        - name: STORAGE_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: azure-storage-secret
+              key: storage-account-key
+        - name: CONTAINER
+          value: "datasets"
+        - name: FILE_SHARE_NAME
+          value: "datasets"
+        - name: BUCKET_MAPPING
+          value: ""  # Optional: "bucket1:container1,bucket2:container2"
+        volumeMounts:
+        - name: proxy-code
+          mountPath: /app/proxy
+        workingDir: /app
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install --no-cache-dir -r /app/proxy/requirements.txt
+          python -m proxy.proxy_server
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: proxy-code
+        configMap:
+          name: proxy-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3-azure-proxy
+  labels:
+    app: s3-azure-proxy
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5000
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: s3-azure-proxy
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-storage-secret
+type: Opaque
+stringData:
+  storage-account-name: "vibhansaraystorage"  # Replace with your storage account
+  storage-account-key: ""  # Replace with your storage account key
