@@ -30,7 +30,7 @@ $trainingYaml = $trainingYaml -replace "__DATA_DIR__", $DATA_DIR `
     -replace "__CHECKPOINT_DIR__", $CHECKPOINT_DIR `
     -replace "__APP_DIR__", $APP_DIR `
     -replace "__CACHE_DIR__", $CACHE_DIR `
-    -replace "__CHECKPOINT_DIR__", $CHECKPOINT_CACHE `
+    -replace "__CHECKPOINT_CACHE__", $CHECKPOINT_CACHE `
     -replace "__WORKER_REPLICAS__", $WORKER_REPLICAS `
     -replace "__NUM_WORKERS__", $NUM_WORKERS `
     -replace "__FILES_PER_WORKER__", 3 `

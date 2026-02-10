@@ -21,17 +21,6 @@ metadata:
 # ========== RAY JOB SPECIFICATION ==========
 
 spec:
-  # ===== Job Configuration =====
-  selector:
-    matchLabels:
-      component: ray-worker
-
-  template:
-    metadata:
-      labels:
-        component: ray-worker
-        ray.io/node-type: worker 
-        
   # Shutdown the Ray cluster when job finishes
   shutdownAfterJobFinishes: true
   
@@ -39,7 +28,7 @@ spec:
   ttlSecondsAfterFinished: 1800
   
   # Entry point command executed on Ray job submit
-  entrypoint: "python /app/train_hpo.py"
+  entrypoint: "python /app/train_new.py"
 
   # Runtime environment variables and dependencies
   runtimeEnvYAML: |
@@ -56,8 +45,9 @@ spec:
       NUM_WORKERS: "__NUM_WORKERS__"
       NUM_SAMPLES: "12"
       PYTHONPATH: "__APP_DIR__"
-
-  # ========== RAY CLUSTER SPECIFICATION ==========
+      RAY_LOGGING_LEVEL: "ERROR"
+      RAY_LOG_TO_DRIVER: "false"
+      RAY_DISABLE_IMPORT_WARNING: "1"
 
   rayClusterSpec:
     # Ray version - uses official Ray image from Docker Hub
@@ -159,15 +149,6 @@ spec:
       # maxReplicas: 100
       template:
         spec:
-          affinity:
-            podAntiAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                - labelSelector:
-                    matchLabels:    
-                      ray.io/cluster: hpo-job-cpu
-                      ray.io/group-name: cpu-group
-                    topologyKey: "kubernetes.io/hostname" # Enforce anti-affinity at the node level
-
           initContainers:
           - name: setup-cache-directories
             image: busybox:1.28
@@ -192,28 +173,12 @@ spec:
             # Resource requests for proper scheduling and autoscaling
             resources:
               requests:
-                cpu: "40000m"      # 45 CPU cores per worker
-                memory: "120Gi"     # 140GB memory per worker
+                cpu: "20000m"      # 20 CPU cores per worker
+                memory: "80Gi"     # 80GB memory per worker
               limits:
-                cpu: "40000m"      # 45 CPU cores per worker
-                memory: "120Gi"     # 140GB memory per worker
-            command: ["/bin/bash", "-c"]
-              args:
-                - |
-                  # The operator automatically sets RAY_ADDRESS to point to the head service.
-                  ray start --address=$RAY_ADDRESS --block \
-                      --num-cpus=40 \
-                      --memory=120Gi \
-                      --object-store-memory=80Gi        
+                cpu: "22000m"      # Max 22 CPU cores per worker
+                memory: "90Gi"     # Max 90GB memory per worker (leaves 102GB available on 192GB node)
 
-            # Ray object spilling for memory management
-            env:
-              - name: RAY_OBJECT_SPILLING_CONFIG
-                value: |
-                  {"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}
-              - name: TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S
-                value: "300"
-            
             # Mount Azure Blob Storage for dataset and checkpoints
             volumeMounts:
               - name: blob-dataset

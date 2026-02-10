@@ -46,18 +46,18 @@ parameters:
 
 mountOptions:
   - -o allow_other
-  - --file-cache-timeout-in-seconds=3600
-  - --tmp-path=__CHECKPOINT_CACHE__
+  - --block-cache
+  - --block-cache-pool-size=61440
+  - --block-cache-prefetch=200
+  - --block-cache-block-size=16
+  - --log-level=LOG_DEBUG
+  - --log-type=base
+  - --log-file-path=/var/log/blobfuse-checkpoints.log
 
-  # - --disable-kernel-cache
-  # - --block-cache
-  # - --block-cache-pool-size=32000
-  # - --block-cache-prefetch=100
-  # - --block-cache-block-size=16
+  # - --file-cache-timeout-in-seconds=3600
   # - --tmp-path=__CHECKPOINT_CACHE__
-  # - --log-level=LOG_DEBUG
-  # - --log-type=base
-  # - --log-file-path=/var/log/blobfuse-checkpoints.log
+  # - --disable-kernel-cache
+  # - --tmp-path=__CHECKPOINT_CACHE__
   # 
 
 allowVolumeExpansion: true
