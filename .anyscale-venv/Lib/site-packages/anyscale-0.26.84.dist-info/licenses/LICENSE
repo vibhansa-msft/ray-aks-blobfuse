@@ -1,0 +1,68 @@
+AS License
+
+Copyright (2023) Anyscale, Inc.
+
+Definitions.
+
+  Agreement: The agreement between Anyscale, Inc. and you governing the use of
+  the Anyscale Services, located at www.anyscale.com/terms unless you have
+  entered into a separate written agreement with Anyscale governing the use of
+  the applicable Anyscale Services, in which case such agreement shall be the
+  “Agreement”.
+
+  Documentation: any documentation provided with the Software.
+
+  Modification Right: if the Pointer File includes a statement indicating that
+  the modification right applies, the Scope of Use also includes a right to
+  modify the Software, subject to any restrictions set forth in the Pointer
+  File or Documentation; if the Pointer File is silent as to a Modification
+  Right applying or states that one does not apply, none shall apply.
+
+  Pointer File: the license and/or notice file that points to this AS-License
+  provided with or in connection with access to the Software.
+
+  Software: The source code and object code to which this license applies.
+
+
+General. Your downloading or use of the Software will be deemed your approval
+of these terms (“AS-License”).  You acknowledge and agree that Anyscale may
+update this AS-License from time to time at any time by posting an updated
+version of these terms on anyscale.com/as-license and that your continued use
+of the Software following an updated version being posted will constitute
+consent to such changes and such use shall be subject to the current published
+version of the AS-License. If you do not agree to these AS-License terms, you
+may not view or make any use of the Software.
+
+
+Scope of Use. You may not use this Software except in connection with your use
+of the Anyscale Services pursuant to the Agreement. Your use of the Software
+must comply at all times with any restrictions applicable to the Anyscale
+Services generally and must be used in accordance with any applicable
+documentation. Without limiting the foregoing, you may view, use, and copy, and
+if the Pointer File includes a Modification Right, modify (subject to any
+restrictions set forth in the Modification Right), the Software solely for the
+purposes of using the code within or connecting to the Anyscale Services in
+compliance with the Documentation.
+
+
+Termination. This AS-License terminates automatically upon your breach of these
+terms or upon the termination of your Agreement. Additionally, Anyscale may
+terminate this AS-License at any time on notice (including by posting a notice
+on anyscale.com/as-license). Upon termination, you must permanently delete the
+Software and all copies thereof.
+
+
+
+DISCLAIMER; LIMITATION OF LIABILITY.
+
+THE SOFTWARE IS PROVIDED “AS-IS” AND WITH ALL FAULTS. ANYSCALE, ON BEHALF OF
+ITSELF AND ITS LICENSORS, SPECIFICALLY DISCLAIMS ALL WARRANTIES RELATING TO THE
+SOFTWARE, EXPRESS AND IMPLIED, INCLUDING, WITHOUT LIMITATION, IMPLIED
+WARRANTIES, CONDITIONS AND OTHER TERMS OF MERCHANTABILITY, SATISFACTORY QUALITY
+OR FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. ANYSCALE AND ITS
+LICENSORS TOTAL AGGREGATE LIABILITY RELATING TO OR ARISING OUT OF YOUR USE OF
+OR ANYSCALE’S PROVISIONING OF THE SOFTWARE SHALL BE LIMITED TO ONE THOUSAND
+($1,000) DOLLARS. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+THE USE OR OTHER DEALINGS IN THE SOFTWARE.

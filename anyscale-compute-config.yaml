@@ -1,0 +1,9 @@
+cloud: vibhansaanycloud5
+head_node_type:
+  name: head-d48
+  instance_type: Standard_D48ds_v5
+worker_node_types:
+  - name: worker-d48
+    instance_type: Standard_D48ds_v5
+    min_workers: 0
+    max_workers: 10

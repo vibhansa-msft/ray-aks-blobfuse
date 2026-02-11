@@ -1,0 +1,59 @@
+resources:
+# No VPC/subnet creation for OA
+- name: storage-bucket-${CLOUD_ID}
+  type: storage.v1.bucket
+  properties:
+    location: ${REGION}
+    storageClass: REGIONAL
+    iamConfiguration:
+      uniformBucketLevelAccess:
+        enabled: True
+      publicAccessPrevention: enforced
+    cors:
+    - origin: ["${ANYSCALE_CORS_ORIGIN}"]
+      responseHeader: ["*"]
+      # Do not depends on PUT,POST,HEAD,DELETE yet because old clouds are not migrated.
+      method: ["GET", "PUT", "POST", "HEAD", "DELETE"]
+    labels:
+      anyscale-cloud-id: ${CLOUD_ID_UNDERSCORE}
+- name: ${CLOUD_ID}
+  type: iam.v1.serviceAccount
+  properties:
+    accountId: ${CLOUD_ID}
+    serviceAccount:
+      displayName: ${CLOUD_ID} Cluster Node Service Account
+- name: bucket-iam-anyscale-acess-${CLOUD_ID}
+  type: gcp-types/storage-v1:virtual.buckets.iamMemberBinding
+  properties:
+    bucket: $$(ref.storage-bucket-${CLOUD_ID}.name)
+    member: serviceAccount:${ANYSCALE_CONTROL_PLANE_SERVICE_ACCOUNT_EMAIL}
+    role: roles/storage.admin
+  metadata:
+    dependsOn:
+      - storage-bucket-${CLOUD_ID}
+- name: bucket-iam-${CLOUD_ID}
+  type: gcp-types/storage-v1:virtual.buckets.iamMemberBinding
+  properties:
+    bucket: $$(ref.storage-bucket-${CLOUD_ID}.name)
+    member: serviceAccount:$$(ref.${CLOUD_ID}.email)
+    role: roles/storage.admin
+  metadata:
+    dependsOn:
+      - ${CLOUD_ID}
+      - storage-bucket-${CLOUD_ID}
+# Add firewall rules for the cloud
+- name: allow-interal-${CLOUD_ID}
+  type: compute.v1.firewall
+  properties:
+    direction: INGRESS
+    network: projects/${PROJECT_ID}/global/networks/${VPC_NAME}
+    allowed:
+    - IPProtocol: all
+    targetServiceAccounts:
+    - $$(ref.${CLOUD_ID}.email)
+    sourceServiceAccounts:
+    - $$(ref.${CLOUD_ID}.email)
+    priority: 2000
+  metadata:
+    dependsOn:
+      - ${CLOUD_ID}

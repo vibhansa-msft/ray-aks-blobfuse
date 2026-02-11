@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "output_files": {
+      "description": "Files and directories not in the project directory to save in a snapshot",
+      "type": "array"
+    }
+  }
+}

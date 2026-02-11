@@ -1,0 +1,1 @@
+anyscale job submit --compute-config vibhansaanycloud5-compute --cloud vibhansaanycloud5 --working-dir . -- python app/train_new.py

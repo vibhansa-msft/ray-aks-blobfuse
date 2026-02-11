@@ -24,6 +24,10 @@ Load-EnvParameters
 # Check for required CLI tools
 foreach ($t in @("az","kubectl","helm","docker","python")) { Need $t }
 
+# Ensure Anyscale CLI is available via Python 3.11
+$pythonExe = Ensure-Python311
+Ensure-AnyscaleCli -PythonExe $pythonExe
+
 # ========== MAIN DEPLOYMENT FLOW ==========
 
 Write-Host ""

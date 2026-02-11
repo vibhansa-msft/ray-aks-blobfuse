@@ -27,6 +27,100 @@ function Load-EnvParameters {
 }
 
 # =====================================================
+# Python 3.11 + Anyscale helpers
+# =====================================================
+function Ensure-Python311 {
+    # Resolve a Python 3.11 executable, installing if needed
+    $pythonPath = $null
+
+    try {
+        $versionOutput = & python --version 2>&1
+        if ($versionOutput -match "Python\s+3\.11") {
+            $pythonPath = (& python -c "import sys; print(sys.executable)" 2>$null).Trim()
+        }
+    } catch {}
+
+    if (-not $pythonPath) {
+        try {
+            $pythonPath = (& py -3.11 -c "import sys; print(sys.executable)" 2>$null).Trim()
+        } catch {}
+    }
+
+    if (-not $pythonPath) {
+        Write-Host "Installing Python 3.11 via winget..."
+        winget install -e --id Python.Python.3.11
+        try {
+            $pythonPath = (& py -3.11 -c "import sys; print(sys.executable)" 2>$null).Trim()
+        } catch {}
+        if (-not $pythonPath) {
+            try {
+                $versionOutput = & python --version 2>&1
+                if ($versionOutput -match "Python\s+3\.11") {
+                    $pythonPath = (& python -c "import sys; print(sys.executable)" 2>$null).Trim()
+                }
+            } catch {}
+        }
+    }
+
+    if (-not $pythonPath) {
+        Write-Error "Failed to resolve Python 3.11. Please install it manually and retry."
+        exit 1
+    }
+
+    $pythonDir = Split-Path $pythonPath -Parent
+    if ($env:PATH -notlike "*$pythonDir*") {
+        $env:PATH = "$pythonDir;" + $env:PATH
+    }
+    Set-Alias -Name python -Value $pythonPath -Scope Global
+    Write-Host "Using Python 3.11 at $pythonPath"
+    return $pythonPath
+}
+
+function Ensure-AnyscaleCli {
+    param(
+        [string]$PythonExe = $(Ensure-Python311),
+        [string]$AnyscaleRequirement = "anyscale>=0.10.0",
+        [string]$RayRequirement = "ray>=2.5.0"
+    )
+
+    if (-not $PythonExe) {
+        Write-Error "Python 3.11 is required to install the Anyscale CLI."
+        exit 1
+    }
+
+    $installedVersion = $null
+    try {
+        $meta = & $PythonExe -m pip show anyscale 2>$null
+        if ($meta) {
+            foreach ($line in $meta) {
+                if ($line -match "^Version:\s*(.+)$") {
+                    $installedVersion = $matches[1]
+                    break
+                }
+            }
+        }
+    } catch {}
+
+    $needsInstall = $true
+    if ($installedVersion) {
+        try {
+            if ([version]$installedVersion -ge [version]"0.10.0") { $needsInstall = $false }
+        } catch {}
+    }
+
+    if ($needsInstall) {
+        Write-Host "Installing/Upgrading Anyscale CLI and Ray using $PythonExe..."
+        & $PythonExe -m pip install --upgrade $AnyscaleRequirement $RayRequirement
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to install Anyscale CLI. Please review pip output."
+            exit 1
+        }
+    } else {
+        Write-Host "Anyscale CLI already satisfies minimum version (v$installedVersion)."
+    }
+}
+
+# =====================================================
 # Check and Install Required CLI Tools
 # =====================================================
 # This function ensures required tools are available
@@ -150,16 +244,9 @@ function Need {
 
         Write-Host "Docker Desktop is running."
 
-    # python: Install via winget
+    # python: Ensure Python 3.11
     } elseif ($cmd -eq "python") {
-        # Install Python 3.11
-        Write-Host "Installing Python 3.11 via winget..."
-        winget install -e --id Python.Python.3.11
-
-        if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-            Write-Error "Failed to install Python automatically. Please install manually."
-            exit 1
-        }
+        Ensure-Python311 | Out-Null
 
     # Unknown command
     } else {

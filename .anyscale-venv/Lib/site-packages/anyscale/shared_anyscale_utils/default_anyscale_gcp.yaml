@@ -1,0 +1,80 @@
+cluster_name: default
+
+max_workers: 1
+
+upscaling_speed: 1.0
+
+idle_timeout_minutes: 5
+
+docker:
+    image: anyscale/ray-ml:latest
+    container_name: ray_container
+    pull_before_run: false
+
+# Cloud-provider specific configuration.
+provider:
+    type: gcp
+    region: us-west1
+    availability_zone: us-west1-a
+    is_k8s: false
+
+available_node_types:
+    anyscale.head.default:
+        node_config:
+            machineType: n2-standard-8
+            disks:
+              - boot: true
+                autoDelete: true
+                type: PERSISTENT
+                initializeParams:
+                    diskSizeGb: 100
+        resources: {}
+        min_workers: 0
+        max_workers: 0
+    anyscale.worker.small:
+        node_config:
+            machineType: n2-standard-8
+            disks:
+              - boot: true
+                autoDelete: true
+                type: PERSISTENT
+                initializeParams:
+                    diskSizeGb: 100
+        resources: {}
+        min_workers: 0
+        max_workers: 1
+
+# Specify the node type of the head node (as configured above).
+head_node_type: anyscale.head.default
+
+# How Ray will authenticate with newly launched nodes.
+auth:
+    ssh_user: ubuntu
+
+initialization_commands: []
+
+setup_commands: []
+
+head_setup_commands: []
+
+worker_setup_commands: []
+
+head_start_ray_commands:
+    - "ray stop --force; ulimit -n 65536; ray start --head --port=6379 --object-manager-port=8076 --gcs-server-port=9031 --no-monitor"
+
+worker_start_ray_commands:
+    - "ray stop --force; ulimit -n 65536; ray start --address=$RAY_HEAD_IP:6379 --object-manager-port=8076"
+
+# Default values for file synchronization
+cluster_synced_files: []
+
+file_mounts_sync_continuously: False
+
+file_mounts: {}
+
+rsync_exclude:
+    - "**/.git"
+    - "**/.git/**"
+
+rsync_filter:
+    - ".gitignore"

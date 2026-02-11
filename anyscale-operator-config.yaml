@@ -1,0 +1,17 @@
+global:
+  cloudDeploymentId: cldrsrc_tnvh1ksz3crlrv9csgqrj47yzr
+  cloudProvider: azure
+  controlPlaneURL: https://console.anyscale.com
+  auth:
+    iamIdentity: ""        # Optional: AAD app/managed identity that operator uses
+    anyscaleCliToken: "aph0_CkcwRQIhAOQMnNBeN5dfO2IdlAQB1yHepoI4RavjNAC0IhwneGyFAiBXg3FVMOjpzRXQC56sIGV3onFahNSrVrf-74ZXfJ0wVhJjEiB8mFajCqNqeB8zESO_U-CxRdOBhRBjc9btxyahNMYYgRgBIh51c3JfajdzZTk5ZW05eNUxc24ycW0ybmtzZTgzczM6DAiujsrNBhCYpMy6A0IMCILyq8wGEJikzLoD8gEA"
+  azure:
+    clientId: ""           # Optional: same as iamIdentity if using workload identity
+
+ingress-nginx:
+  enabled: true
+  controller:
+    admissionWebhooks:
+      enabled: false
+    service:
+      type: LoadBalancer

@@ -1,0 +1,121 @@
+Description: This template creates the resources necessary for an anyscale hosted cloud.
+Transform: AWS::LanguageExtensions
+Parameters:
+  AnyscaleCLIVersion:
+    Description: Anyscale CLI Version
+    Type: String
+
+  EnvironmentName:
+    Description: Anyscale deploy environment. Used in resource names and tags.
+    Type: String
+
+  CloudID:
+    Description: ID of the anyscale cloud.
+    Type: String
+
+  AnyscaleAWSAccountID:
+    Description: Anyscale control plane AWS account.
+    Type: String
+    Default: 525325868955
+
+  VpcId:
+    Description: ID of the VPC to use for the anyscale cloud.
+    Type: String
+
+  ClusterNodeIAMRoleName:
+    Description: Name of the data plane cluster IAM role
+    Type: String
+
+  MemoryDBRedisPort:
+    Description: Port for MemoryDB Redis
+    Type: String
+    Default: "6379"
+
+Resources:
+
+  AnyscaleSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Ref CloudID
+      GroupDescription: "Anyscale security group"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        # For https
+        - IpProtocol: "tcp"
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+        # For ssh
+        - IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+      Tags:
+        - Key: anyscale-cloud-id
+          Value: !Ref CloudID
+        - Key: anyscale-deploy-environment
+          Value: !Ref EnvironmentName
+
+  # The following two rules allow ray cluster nodes to talk to each other since all nodes have the same security group attached.
+  # This also allows ray cluster nodes to talk to EFS since they have the same security group attached.
+  AnyscaleSecurityGroupIntraClusterIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: "-1"
+      GroupId: !Ref AnyscaleSecurityGroup
+      SourceSecurityGroupId: !Ref AnyscaleSecurityGroup
+
+  AnyscaleSecurityGroupIntraClusterEgressRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: "-1"
+      GroupId: !Ref AnyscaleSecurityGroup
+      DestinationSecurityGroupId: !Ref AnyscaleSecurityGroup
+
+  nodeRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Ref ClusterNodeIAMRoleName
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Sid: 'Allow'
+        Version: 2012-10-17
+      Path: /
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: anyscale-cloud-id
+          Value: !Ref CloudID
+        - Key: anyscale-deploy-environment
+          Value: !Ref EnvironmentName
+
+  IamInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Ref nodeRole
+      Path: /
+      Roles:
+        - !Ref nodeRole
+
+$MEMORY_DB_RESOURCE
+
+Outputs:
+
+  AnyscaleSecurityGroup:
+    Description: Anyscale Security group
+    Value: !Ref AnyscaleSecurityGroup
+
+  NodeIamRole:
+    Description: ARN of the node IAM role
+    Value: !GetAtt
+      - nodeRole
+      - Arn
+
+$MEMORY_DB_OUTPUT

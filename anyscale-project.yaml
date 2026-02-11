@@ -1,0 +1,52 @@
+name: vibhansa-ray-aks-anyscale
+
+# Anyscale project definition to run train_new.py as a Ray Job.
+# Fill the INSTANCE_TYPE and IMAGE with values available in your Anyscale org.
+cluster_envs:
+  - name: cpu-training
+    # Base runtime; override below in jobs if needed.
+    runtime_env:
+      pip:
+        - torch>=2.1.0
+        - transformers>=4.35.0
+        - datasets>=2.14.5
+        - pyarrow>=14.0.0
+        - pandas>=2.0.0
+        - bitsandbytes>=0.41.0
+        - accelerate>=0.24.0
+        - sentencepiece>=0.1.99
+        - ray[tune]>=2.50.0
+      env_vars:
+        DATA_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/c4"
+        CHECKPOINT_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/checkpoints"
+        HF_TOKEN: "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"
+        APP_DIR: "/app"
+        NUM_WORKERS: "20"
+        PYTHONPATH: "/app"
+        TRANSFORMERS_OFFLINE: "0"
+        RAY_LOGGING_LEVEL: "ERROR"
+        RAY_LOG_TO_DRIVER: "false"
+        RAY_DISABLE_IMPORT_WARNING: "1"
+          DATA_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/c4"
+          CHECKPOINT_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/checkpoints"
+    config:
+      # Replace with a real Anyscale cloud/instance/image for your org.
+      cloud: "vibhansaanycloud5"
+      head_node_type: "Standard_D48ds_v5"
+      worker_node_types:
+        - name: worker-default
+          instance_type: "Standard_D48ds_v5"
+          min_workers: 0
+          max_workers: 20
+          use_spot: false
+      autotermination_minutes: 30
+
+jobs:
+  - name: train-new
+    cluster_env: cpu-training
+    working_dir: "."
+    entrypoint: "python train_new.py"
+    # Optionally override runtime_env per job (e.g., different NUM_WORKERS)
+    runtime_env:
+      env_vars:
+        NUM_WORKERS: "20"
