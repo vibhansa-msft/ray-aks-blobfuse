@@ -18,6 +18,7 @@ import os
 import time
 import sys
 import ray
+import json
 from huggingface_hub import snapshot_download, hf_hub_download, list_repo_files
 
 # ------------------------------------------------------------------------------
@@ -44,7 +45,12 @@ class FileLogger(object):
         self.log_file = LOG_FILE
 
     def write(self, message):
-        # Write ONLY to shared log file
+        # Write to BOTH original stream (Anyscale portal) and shared log file
+        try:
+            self.original_stream.write(message)
+            self.original_stream.flush()
+        except Exception:
+            pass
         try:
             with open(self.log_file, "a") as f:
                 f.write(message)
@@ -52,7 +58,10 @@ class FileLogger(object):
             pass
 
     def flush(self):
-        pass
+        try:
+            self.original_stream.flush()
+        except Exception:
+            pass
 
     def fileno(self):
         return self.original_stream.fileno()
@@ -129,7 +138,10 @@ if ray.is_initialized():
     print("[Init] Ray is already initialized.")
 else:
     # Connect to the existing Ray cluster
-    ray.init(address="auto")
+    ray.init(
+        address="auto",     # Connect to the cluster Ray instance (auto-detect)
+        log_to_driver=True  # ensures worker logs are forwarded)
+    ) 
 
 # Log available resources to verify cluster size
 resources = ray.available_resources()
@@ -139,7 +151,7 @@ print(f"[Init] Connected. Cluster Resources: {resources}")
 # ------------------------------------------------------------------------------
 # Task 1: Model Download (Centralized)
 # ------------------------------------------------------------------------------
-@ray.remote(num_cpus=1)
+@ray.remote(num_cpus=10)
 def download_model():
     """
     Downloads the entire model repository to shared storage.
@@ -201,6 +213,7 @@ def download_file_wrapper(batch):
         
     file_names = []
     statuses = []
+    size_bytes_list = []
     
     token_arg = os.environ.get("HF_TOKEN")
     if not token_arg:  # invalid empty string or None
@@ -215,9 +228,11 @@ def download_file_wrapper(batch):
             
             # Simple check to avoid re-downloading existing files
             if os.path.exists(file_path):
-                 print(f"[{worker_tag}] Skipped (exists): {filename}")
+                 fsize = os.path.getsize(file_path)
+                 print(f"[{worker_tag}] Skipped (exists, {fsize/(1024*1024):.1f} MB): {filename}")
                  file_names.append(filename)
                  statuses.append("skipped")
+                 size_bytes_list.append(fsize)
                  continue
 
             # Download specific file to the shared dataset folder
@@ -228,17 +243,22 @@ def download_file_wrapper(batch):
                 local_dir=DATASET_SAVE_PATH,
                 token=token_arg
             )
-            print(f"[{worker_tag}] Downloaded: {filename}")
+            # Get file size after download
+            fsize = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            print(f"[{worker_tag}] Downloaded ({fsize/(1024*1024):.1f} MB): {filename}")
             file_names.append(filename)
             statuses.append("downloaded")
+            size_bytes_list.append(fsize)
         except Exception as e:
             print(f"[{worker_tag}] Failed: {filename} - {e}")
             file_names.append(filename)
             statuses.append("failed")
+            size_bytes_list.append(0)
     
-    print(f"[{worker_tag}] Batch complete: {len(file_names)} files processed")
+    batch_total_mb = sum(size_bytes_list) / (1024 * 1024)
+    print(f"[{worker_tag}] Batch complete: {len(file_names)} files, {batch_total_mb:.1f} MB total")
     # Return columnar format: dict of lists (required by Ray Data map_batches)
-    return {"file": file_names, "status": statuses}
+    return {"file": file_names, "status": statuses, "size_bytes": size_bytes_list}
 
 # ------------------------------------------------------------------------------
 # Task 3: Dataset Download Orchestration
@@ -278,17 +298,19 @@ def download_dataset_distributed():
     input_data = [{"item": f} for f in target_files]
     ds = ray.data.from_items(input_data)
     
-    # Use map_batches to process files in parallel. 
-    # With ~460 files, batch_size=20 yields ~23 batches.
-    # concurrency=20 ensures 20 tasks run in parallel across 10+ nodes.
-    # num_cpus=4 per task → max 12 tasks per D48 node (48 vCPUs),
-    # so 20 concurrent tasks need at least ~2 nodes, but Ray scheduler
-    # spreads them across available nodes for better I/O parallelism.
+    # Use map_batches to distribute downloads across the cluster.
+    # Downloads are I/O-bound, so we use num_cpus=1 per task to allow
+    # many tasks to run concurrently on each node. The autoscaler will
+    # add more nodes as needed (min_nodes=2, max_nodes=20).
+    num_files = len(target_files)
+    batch_sz = max(1, num_files // 20)  # ~7 files per batch → 20 batches
+    print(f"[Dataset] Distributing {num_files} files in batches of {batch_sz}")
+    
     downloaded_ds = ds.map_batches(
         download_file_wrapper, 
-        batch_size=20,      # Process 20 files per task for bigger batches
-        num_cpus=4,          # Reserve 4 CPUs per task
-        concurrency=20       # Run 20 tasks in parallel across the cluster
+        batch_size=batch_sz,  # ~7 files per batch
+        num_cpus=1,           # I/O-bound: 1 CPU per task, many tasks per node
+        concurrency=20        # Up to 20 concurrent download tasks
     )
     
     # Force execution and collect results
@@ -297,93 +319,167 @@ def download_dataset_distributed():
     
     duration = time.time() - start_time
     
-    # Each row is a dict like {"file": "...", "status": "downloaded|skipped|failed"}
+    # Each row is a dict like {"file": "...", "status": "...", "size_bytes": N}
     success_count = sum(1 for r in all_results if r["status"] != "failed")
     failed_count = sum(1 for r in all_results if r["status"] == "failed")
+    total_bytes = sum(r.get("size_bytes", 0) for r in all_results)
+    total_gb = total_bytes / (1024 ** 3)
     
     print(f"[Dataset] Summary: Processed {len(all_results)} files.")
+    print(f"[Dataset] Total data volume: {total_gb:.2f} GB ({total_bytes:,} bytes)")
     print(f"[Dataset] Successfully downloaded {success_count}/{len(target_files)} files in {duration:.2f} seconds.")
+    print(f"[Dataset] Throughput: {total_gb/duration*1024:.1f} MB/s" if duration > 0 else "")
     if failed_count > 0:
         failed_files = [r["file"] for r in all_results if r["status"] == "failed"]
         print(f"[Dataset] WARNING: {failed_count} files failed: {failed_files}")
 
 
-# # ------------------------------------------------------------------------------
-# # Task 4: Load & Checkpoint (Distributed)
-# # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Task 4: Distributed Model Sharding & Checkpoint (Pipeline-Parallel Simulation)
+# ------------------------------------------------------------------------------
 
-# @ray.remote(num_cpus=4) # Reserve enough CPU to load model in memory without OOM
-# def load_and_checkpoint_worker(node_idx):
-#     """
-#     Worker task: Loads the model from shared storage and saves a checkpoint
-#     to a unique node-specific directory.
-#     """
-#     node_ip = ray.util.get_node_ip_address()
-#     print(f"\n[Checkpoint-Worker-{node_idx}] Starting on Node IP: {node_ip}")
+@ray.remote(num_cpus=30) # Reserve 30 vCPUs per task to ensure one task per node
+def load_and_checkpoint_worker(node_idx, num_workers, total_layers=32):
+    """
+    Simulates pipeline-parallel distributed training:
+    Each worker loads only its assigned model layers (shard) from safetensors,
+    then saves the shard as a checkpoint.
 
-#     # Unique checkpoint path for this worker to avoid write conflicts
-#     node_checkpoint_path = os.path.join(CHECKPOINT_SAVE_PATH, f"node_{node_idx}_{node_ip}")
+    Mistral-7B has 32 transformer layers + embedding + norm + lm_head.
+    With 20 workers: 12 workers get 2 layers, 8 workers get 1 layer.
+    Worker 0 also gets embed_tokens. Last worker gets model.norm + lm_head.
+    """
+    import json
+    from safetensors.torch import load_file, save_file
 
-#     if not os.path.exists(MODEL_SAVE_PATH):
-#         print(f"[Checkpoint-Worker-{node_idx}] Error: Model path {MODEL_SAVE_PATH} does not exist.")
-#         return False
+    node_ip = ray.util.get_node_ip_address()
+    tag = f"Shard-Worker-{node_idx}@{node_ip}"
+    print(f"\n[{tag}] Starting pipeline-parallel shard loading...")
 
-#     try:
-#         print(f"[Checkpoint-Worker-{node_idx}] Loading model from {MODEL_SAVE_PATH}...")
-#         start_time = time.time()
-        
-#         # Load model to CPU
-#         # low_cpu_mem_usage=True helps with loading large models
-#         model = AutoModelForCausalLM.from_pretrained(
-#             MODEL_SAVE_PATH, 
-#             torch_dtype=torch.float32, 
-#             low_cpu_mem_usage=True,
-#             device_map="cpu",
-#             token=os.environ.get("HF_TOKEN")
-#         )
-#         tokenizer = AutoTokenizer.from_pretrained(MODEL_SAVE_PATH, token=os.environ.get("HF_TOKEN"))
-#         load_time = time.time() - start_time
-#         print(f"[Checkpoint-Worker-{node_idx}] Loaded successfully in {load_time:.2f}s.")
+    if not os.path.exists(MODEL_SAVE_PATH):
+        print(f"[{tag}] Error: Model path {MODEL_SAVE_PATH} does not exist.")
+        return False
 
-#         # Save checkpoint
-#         print(f"[Checkpoint-Worker-{node_idx}] Saving to {node_checkpoint_path}...")
-#         fs_start_time = time.time()
-        
-#         os.makedirs(node_checkpoint_path, exist_ok=True)
-#         model.save_pretrained(node_checkpoint_path)
-#         tokenizer.save_pretrained(node_checkpoint_path)
-        
-#         save_time = time.time() - fs_start_time
-#         print(f"[Checkpoint-Worker-{node_idx}] Saved successfully in {save_time:.2f}s.")
-#         return True
-        
-#     except Exception as e:
-#         print(f"[Checkpoint-Worker-{node_idx}] Failed: {e}")
-#         return False
+    try:
+        # ---- 1. Calculate layer assignment (even distribution) ----
+        layers_per_worker = total_layers // num_workers
+        remainder = total_layers % num_workers
 
-# def distribute_model_loading():
-#     """
-#     Launches 10 parallel tasks to load and checkpoint the model.
-#     Ray will schedule these across available nodes.
-#     """
-#     print("\n[Checkpoint] Triggering distributed model load on 10 workers...")
-    
-#     # Launch 10 tasks.
-#     # To ensure they run on different nodes, we rely on Ray's scheduler 
-#     # and the resource requirements (num_cpus=4).
-#     # If using placement groups is strictly required for "exactly one per node", 
-#     # we can add that, but standard scheduling usually spreads robustly with high CPU reqs.
-    
-#     futures = [load_and_checkpoint_worker.remote(i) for i in range(10)]
-    
-#     results = ray.get(futures)
-#     success_count = sum(results)
-    
-#     if success_count == 10:
-#         print(f"[Checkpoint] All 10 workers successfully loaded and saved checkpoints.")
-#     else:
-#         print(f"[Checkpoint] Only {success_count}/10 workers succeeded. Failing job.")
-#         sys.exit(1)
+        if node_idx < remainder:
+            start = node_idx * (layers_per_worker + 1)
+            count = layers_per_worker + 1
+        else:
+            start = remainder * (layers_per_worker + 1) + (node_idx - remainder) * layers_per_worker
+            count = layers_per_worker
+
+        layer_ids = list(range(start, start + count))
+        print(f"[{tag}] Assigned layers: {layer_ids} ({count} layers)")
+
+        # ---- 2. Read safetensors weight index ----
+        index_file = os.path.join(MODEL_SAVE_PATH, "model.safetensors.index.json")
+        if not os.path.exists(index_file):
+            print(f"[{tag}] Error: Weight index not found at {index_file}")
+            return False
+
+        with open(index_file) as f:
+            weight_index = json.load(f)
+
+        weight_map = weight_index["weight_map"]
+
+        # ---- 3. Identify weight keys for our assigned layers ----
+        our_keys = set()
+        for key in weight_map:
+            for layer_id in layer_ids:
+                if f"model.layers.{layer_id}." in key:
+                    our_keys.add(key)
+                    break
+
+        # Worker 0 also gets the embedding layer
+        if node_idx == 0:
+            for key in weight_map:
+                if "embed_tokens" in key:
+                    our_keys.add(key)
+
+        # Last worker gets model.norm and lm_head
+        if node_idx == num_workers - 1:
+            for key in weight_map:
+                if "model.norm" in key or "lm_head" in key:
+                    our_keys.add(key)
+
+        print(f"[{tag}] Loading {len(our_keys)} weight tensors...")
+
+        # ---- 4. Load only our weights from safetensors files ----
+        # Identify which safetensors files contain our keys
+        our_files = set(weight_map[k] for k in our_keys)
+        print(f"[{tag}] Reading from {len(our_files)} safetensors file(s): {sorted(our_files)}")
+
+        load_start = time.time()
+        our_weights = {}
+        for sf_file in sorted(our_files):
+            full_path = os.path.join(MODEL_SAVE_PATH, sf_file)
+            all_tensors = load_file(full_path)
+            for key in our_keys:
+                if key in all_tensors:
+                    our_weights[key] = all_tensors[key]
+            del all_tensors  # Free memory for tensors we don't need
+
+        load_time = time.time() - load_start
+        num_params = sum(t.numel() for t in our_weights.values())
+        mem_mb = sum(t.nbytes for t in our_weights.values()) / (1024 * 1024)
+        print(f"[{tag}] Loaded {len(our_weights)} tensors ({num_params:,} params, {mem_mb:.1f} MB) in {load_time:.2f}s")
+
+        # ---- 5. Save shard checkpoint ----
+        shard_path = os.path.join(CHECKPOINT_SAVE_PATH, f"shard_{node_idx}")
+        os.makedirs(shard_path, exist_ok=True)
+
+        save_start = time.time()
+        save_file(our_weights, os.path.join(shard_path, f"model_shard_{node_idx}.safetensors"))
+
+        # Save shard metadata
+        shard_info = {
+            "node_idx": node_idx,
+            "node_ip": node_ip,
+            "layers": layer_ids,
+            "num_tensors": len(our_weights),
+            "num_params": num_params,
+            "size_mb": round(mem_mb, 1),
+            "weight_keys": sorted(our_weights.keys()),
+            "source_files": sorted(our_files),
+        }
+        with open(os.path.join(shard_path, "shard_info.json"), "w") as f:
+            json.dump(shard_info, f, indent=2)
+
+        save_time = time.time() - save_start
+        print(f"[{tag}] Saved shard checkpoint to {shard_path} in {save_time:.2f}s")
+        print(f"[{tag}] Done. Layers={layer_ids}, Params={num_params:,}, Load={load_time:.2f}s, Save={save_time:.2f}s")
+        return True
+
+    except Exception as e:
+        print(f"[{tag}] Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def distribute_model_loading():
+    """
+    Launches 20 parallel tasks (one per D48 node) to load model shards
+    and save checkpoint shards. Simulates pipeline-parallel model distribution.
+    """
+    num_workers = 15
+    total_layers = 32  # Mistral-7B has 32 transformer layers
+    print(f"\n[Checkpoint] Distributing {total_layers}-layer model across {num_workers} workers (pipeline-parallel)...")
+    print(f"[Checkpoint] Each worker loads its assigned layers from safetensors and saves a shard checkpoint.")
+
+    futures = [load_and_checkpoint_worker.remote(i, num_workers, total_layers) for i in range(num_workers)]
+
+    results = ray.get(futures)
+    success_count = sum(results)
+
+    if success_count == num_workers:
+        print(f"[Checkpoint] All {num_workers} workers successfully loaded and saved shard checkpoints.")
+    else:
+        print(f"[Checkpoint] Only {success_count}/{num_workers} workers succeeded. Failing job.")
+        sys.exit(1)
 
 
 # ------------------------------------------------------------------------------
@@ -424,8 +520,6 @@ def validate_downloads():
         
         if len(parquet_files) > 0:
             print(f"[Validation] Dataset verification PASSED. Found {len(parquet_files)} parquet files under {DATASET_SAVE_PATH}.")
-            for pf in parquet_files:
-                print(f"[Validation]   - {pf}")
         else:
             print(f"[Validation] Dataset verification FAILED. No parquet files found under {DATASET_SAVE_PATH}.")
             validation_failed = True
@@ -480,8 +574,8 @@ if __name__ == "__main__":
         validate_downloads()
 
         # Step 4: Distributed Load & Checkpoint (10 workers)
-        print(f"[Step 4] SKIPPED: Distributed Load & Checkpoint")
-        # distribute_model_loading()
+        print(f"[Step 4] Distributed Load & Checkpoint")
+        distribute_model_loading()
         
         print(f"[Success] Job completed successfully.")
 
