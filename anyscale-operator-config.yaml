@@ -3,10 +3,10 @@ global:
   cloudProvider: azure
   controlPlaneURL: https://console.anyscale.com
   auth:
-    iamIdentity: "cabfa12d-7cfe-4db7-895e-e90bae86f3ed"        # Managed identity client ID for operator workload identity
-    anyscaleCliToken: "aph0_CkcwRQIhAMCvU0YlPdjc_U2wMg6EJt187b3rkWe1AJfVj7_N06-_AiADmBAaVUodc8gxO9lcNUB8xMWkRaCEBt3N4PbJV4f3fhJhEiBeIulwGSIcyM5_aNxYT_uEgA54N4KpG3EQG1sdiQbzIhgBIh51c3JfajdzZTk5ZW05eDUxc24ycW0ybmtzZTgzczM6CwjR1MnNBhDIkqVsQgsIpduwzAYQyJKlbPIBAA"
+    iamIdentity: """
+    anyscaleCliToken: ""
   azure:
-    clientId: "cabfa12d-7cfe-4db7-895e-e90bae86f3ed"           # Client ID for MSI used by operator
+    clientId: ""           # Client ID for MSI used by operator
 
 ingress-nginx:
   enabled: true
