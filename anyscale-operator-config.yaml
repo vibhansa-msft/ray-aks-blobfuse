@@ -1,12 +1,12 @@
 global:
-  cloudDeploymentId: cldrsrc_tnvh1ksz3crlrv9csgqrj47yzr
+  cloudDeploymentId: cldrsrc_4zvnxbesvhey3wj296lgcfqfwl
   cloudProvider: azure
   controlPlaneURL: https://console.anyscale.com
   auth:
-    iamIdentity: ""        # Optional: AAD app/managed identity that operator uses
-    anyscaleCliToken: "aph0_CkcwRQIhAOQMnNBeN5dfO2IdlAQB1yHepoI4RavjNAC0IhwneGyFAiBXg3FVMOjpzRXQC56sIGV3onFahNSrVrf-74ZXfJ0wVhJjEiB8mFajCqNqeB8zESO_U-CxRdOBhRBjc9btxyahNMYYgRgBIh51c3JfajdzZTk5ZW05eNUxc24ycW0ybmtzZTgzczM6DAiujsrNBhCYpMy6A0IMCILyq8wGEJikzLoD8gEA"
+    iamIdentity: "cabfa12d-7cfe-4db7-895e-e90bae86f3ed"        # Managed identity client ID for operator workload identity
+    anyscaleCliToken: "aph0_CkcwRQIhAMCvU0YlPdjc_U2wMg6EJt187b3rkWe1AJfVj7_N06-_AiADmBAaVUodc8gxO9lcNUB8xMWkRaCEBt3N4PbJV4f3fhJhEiBeIulwGSIcyM5_aNxYT_uEgA54N4KpG3EQG1sdiQbzIhgBIh51c3JfajdzZTk5ZW05eDUxc24ycW0ybmtzZTgzczM6CwjR1MnNBhDIkqVsQgsIpduwzAYQyJKlbPIBAA"
   azure:
-    clientId: ""           # Optional: same as iamIdentity if using workload identity
+    clientId: "cabfa12d-7cfe-4db7-895e-e90bae86f3ed"           # Client ID for MSI used by operator
 
 ingress-nginx:
   enabled: true
@@ -15,3 +15,16 @@ ingress-nginx:
       enabled: false
     service:
       type: LoadBalancer
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -91,13 +91,14 @@ spec:
             image: rayproject/ray:2.50.0
             
             # Resource requests for proper scheduling and autoscaling
+            # Matching worker pod size: ~22 vCPU, 90GB RAM
             resources:
               requests:
-                cpu: "8000m"      # 8 CPU cores for head node (need for model caching)
-                memory: "64Gi"    # 64GB memory for model downloading and caching
+                cpu: "22000m"     # 22 vCPU (half a D48 v5 node)
+                memory: "90Gi"    # 90GB memory
               limits:
-                cpu: "16000m"     # Max 16 CPU cores
-                memory: "128Gi"   # Max 128GB memory
+                cpu: "24000m"     # Max 24 vCPU
+                memory: "96Gi"    # Max 96GB memory
             
             # Ray object spilling configuration for memory management
             env:

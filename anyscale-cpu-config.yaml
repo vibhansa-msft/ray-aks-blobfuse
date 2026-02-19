@@ -1,3 +1,4 @@
+cloud_provider: AZURE
 workloads:
   instanceTypes:
     enableDefaults: true  
@@ -5,8 +6,8 @@ workloads:
       # Keys must match the instance_type names referenced in compute configs
       head-d48:
         resources:
-          CPU: 46       # Slightly under host capacity for K8s overhead
-          memory: 180Gi # Slightly under host capacity for K8s overhead
+          CPU: 20       # Slightly under host capacity for K8s overhead
+          memory: 80Gi # Slightly under host capacity for K8s overhead
       worker-d48:
         resources:
           CPU: 46       # Slightly under host capacity for K8s overhead

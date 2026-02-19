@@ -16,6 +16,9 @@ cluster_envs:
         - accelerate>=0.24.0
         - sentencepiece>=0.1.99
         - ray[tune]>=2.50.0
+        - requests>=2.28.0
+        - pillow>=10.0.0
+        - huggingface_hub>=0.19.0
       env_vars:
         DATA_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/c4"
         CHECKPOINT_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/checkpoints"
@@ -27,11 +30,9 @@ cluster_envs:
         RAY_LOGGING_LEVEL: "ERROR"
         RAY_LOG_TO_DRIVER: "false"
         RAY_DISABLE_IMPORT_WARNING: "1"
-          DATA_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/c4"
-          CHECKPOINT_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/checkpoints"
     config:
       # Replace with a real Anyscale cloud/instance/image for your org.
-      cloud: "vibhansaanycloud5"
+      cloud: "vibhansaanycloud2"
       head_node_type: "Standard_D48ds_v5"
       worker_node_types:
         - name: worker-default
@@ -50,3 +51,8 @@ jobs:
     runtime_env:
       env_vars:
         NUM_WORKERS: "20"
+
+  - name: process-images
+    cluster_env: cpu-training
+    working_dir: "."
+    entrypoint: "python examples/image_processing/process_images.py"
