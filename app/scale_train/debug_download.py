@@ -6,7 +6,7 @@ MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 MODEL_SAVE_PATH = "./debug_output_2"
 
 # Token from the log
-HF_TOKEN = "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"
+HF_TOKEN = ""
 masked_token = f"{HF_TOKEN[:4]}...{HF_TOKEN[-4:]}" if HF_TOKEN else "None"
 
 print(f"Attempting download of {MODEL_ID} with token {masked_token}...")

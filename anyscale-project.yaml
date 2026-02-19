@@ -22,7 +22,7 @@ cluster_envs:
       env_vars:
         DATA_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/c4"
         CHECKPOINT_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/checkpoints"
-        HF_TOKEN: "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"
+        HF_TOKEN: ""
         APP_DIR: "/app"
         NUM_WORKERS: "20"
         PYTHONPATH: "/app"
