@@ -1,0 +1,33 @@
+# ========== STATIC PERSISTENT VOLUME (AZURE BLOB STORAGE - CHECKPOINTS) ==========
+# Pre-provisioned PV pointing to existing 'datasets' container on vibhansaanyscalestorage.
+# Uses static provisioning to avoid CSI driver needing container write permissions.
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-blob-checkpoint
+  labels:
+    usage: checkpoint
+spec:
+  capacity:
+    storage: 5Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: blobfuse-anyscale
+  mountOptions:
+    - -o allow_other
+    - --block-cache
+    - --block-cache-pool-size=61440
+    - --block-cache-prefetch=200
+    - --block-cache-block-size=16
+    - --disable-kernel-cache
+  csi:
+    driver: blob.csi.azure.com
+    volumeHandle: pv-blob-checkpoint-vibhansaanyscalestorage-datasets
+    volumeAttributes:
+      containerName: datasets
+      storageAccount: vibhansaanyscalestorage
+      resourceGroup: vibhansa-ray-aks-rg
+      protocol: fuse2
+      mountWithWorkloadIdentityToken: "true"

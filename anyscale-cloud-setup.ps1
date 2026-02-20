@@ -849,4 +849,7 @@ if ($configs.Count -gt 0) {
     Write-Host "[WARN] No compute configs found for cloud '$cloudName'." -ForegroundColor Yellow
 }
 
+# anyscale cloud config update --cloud $cloudName  --enable-log-ingestion
+# Log ingestion is not supported on Azure — the error says: "Log ingestion to Anyscale Control Plane is not yet supported on Anyscale First-Party Offering on Azure."
+
 Write-Host "[DONE] Flow finished." -ForegroundColor Green

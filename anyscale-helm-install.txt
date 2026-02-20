@@ -1,0 +1,9 @@
+helm upgrade anyscale-operator anyscale/anyscale-operator
+  --set-string global.cloudDeploymentId=cldrsrc_1h2xk9dfma9j8rqbgtamarwyff
+  --set-string global.cloudProvider=azure
+  --set-string global.auth.audience=api://086bc555-6989-4362-ba30-fded273e432b/.default
+  --set-string workloads.serviceAccount.name=anyscale-operator
+  --namespace anyscale-system
+  --create-namespace
+  --wait
+  -i

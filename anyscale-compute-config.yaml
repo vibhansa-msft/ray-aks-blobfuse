@@ -1,4 +1,4 @@
-cloud: vibhansaanycloud2
+cloud: vibhansaanycloud3
 head_node_type:
   name: head-small
   instance_type: 2CPU-8GB

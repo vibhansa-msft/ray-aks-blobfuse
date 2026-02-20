@@ -8,7 +8,7 @@
 #    worker nodes in parallel.
 #
 # Shared Storage:
-# The script assumes a shared volume is mounted at '/mnt/cluster_storage'.
+# The script assumes a shared volume is mounted at '/mnt/shared_storage'.
 # This allows all nodes to access the downloaded model and dataset without
 # redundant downloads or manual transfer.
 # 
@@ -26,8 +26,8 @@ from huggingface_hub import snapshot_download, hf_hub_download, list_repo_files
 # ------------------------------------------------------------------------------
 
 # Define storage path where data will be persisted.
-# Check env var first, default to /mnt/cluster_storage
-STORAGE_PATH = os.environ.get("STORAGE_PATH", "/mnt/cluster_storage")
+# Check env var first, default to /mnt/shared_storage
+STORAGE_PATH = os.environ.get("STORAGE_PATH", "/mnt/shared_storage")
 
 # ------------------------------------------------------------------------------
 # Logging Helper (dual-write: stdout + local log file)
@@ -75,7 +75,7 @@ def _collect_node_logs():
 
 def collect_worker_logs():
     """
-    Gathers log files from all worker nodes and saves them to cluster_storage.
+    Gathers log files from all worker nodes and saves them to shared_storage.
     Called once at job end — single batch write to blobfuse, not concurrent.
     """
     log("\n[Logs] Collecting worker logs from all nodes...")

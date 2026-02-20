@@ -28,8 +28,11 @@ spec:
   # This is essential for Ray head pod storing checkpoints
   accessModes: [ "ReadWriteMany" ]
   
-  # StorageClass optimized for read-write checkpoint access with block-cache
-  storageClassName: blobfuse-checkpoints
+  # StorageClass for mount options (block-cache, disable-kernel-cache)
+  storageClassName: blobfuse-anyscale
+  
+  # Bind to pre-provisioned static PV (avoids CSI needing container write permissions)
+  volumeName: pv-blob-checkpoint
   
   # Storage capacity requested
   # Note: This is the requested capacity; actual quota depends on storage account limits
