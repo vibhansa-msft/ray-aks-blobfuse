@@ -15,7 +15,7 @@ compute_config:
     # change the instance type, make sure the vllm config is updated accordingly.
     # Note: Using worker-d48 (CPU) as defined in anyscale-cpu-config.yaml
     - instance_type: "worker-d48"
-      min_nodes: 2
+      min_nodes: 15
       max_nodes: 20
   max_resources:
     CPU: 768

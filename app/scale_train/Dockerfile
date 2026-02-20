@@ -7,4 +7,4 @@ FROM anyscale/ray:2.52.0-slim-py312
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-RUN uv pip install --system huggingface_hub pyarrow pandas ray[data] requests tqdm torch transformers accelerate tokenizers sentencepiece protobuf
+RUN uv pip install --system huggingface_hub pyarrow pandas ray[data] requests tqdm torch transformers accelerate tokenizers sentencepiece protobuf safetensors
