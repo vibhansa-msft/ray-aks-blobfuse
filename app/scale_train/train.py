@@ -512,7 +512,7 @@ def train_worker(worker_idx, assigned_files, tracker, num_epochs=10):
         # ---- 3. Checkpoint at end of each epoch using save_pretrained ----
         ckpt_start = time.time()
         epoch_ckpt_dir = os.path.join(worker_checkpoint_dir, f"epoch_{epoch}")
-        model.save_pretrained(epoch_ckpt_dir)
+        model.save_pretrained(epoch_ckpt_dir, max_shard_size="4GB")
         tokenizer.save_pretrained(epoch_ckpt_dir)
 
         epoch_meta = {
@@ -769,20 +769,21 @@ def consolidate_model(tracker, num_epochs=10):
     avg_time = time.time() - avg_start
     log(f"[Aggregation] Consolidation simulation complete ({avg_time:.2f}s)")
 
-    # ---- 3. Save final model ----
-    log(f"[Aggregation] Saving final model...")
+    # ---- 3. Save final model (sharded ~4GB safetensors) ----
+    log(f"[Aggregation] Saving final model with max_shard_size=4GB...")
     tracker.update_phase.remote("saving", avg_time=round(avg_time, 2))
     save_start = time.time()
 
     if os.path.exists(final_model_dir):
         shutil.rmtree(final_model_dir)
-    final_model.save_pretrained(final_model_dir)
+    os.makedirs(final_model_dir, exist_ok=True)
 
-    # Save tokenizer from last worker checkpoint
+    final_model.save_pretrained(final_model_dir, max_shard_size="4GB")
     tokenizer = AutoTokenizer.from_pretrained(last_ckpt_dir)
     tokenizer.save_pretrained(final_model_dir)
 
     save_time = time.time() - save_start
+    log(f"[Aggregation] Model saved in {save_time:.2f}s")
 
     # ---- 4. Compute stats ----
     num_params = sum(p.numel() for p in final_model.parameters())
@@ -794,6 +795,8 @@ def consolidate_model(tracker, num_epochs=10):
         os.path.getsize(os.path.join(final_model_dir, f))
         for f in copied_files if os.path.isfile(os.path.join(final_model_dir, f))
     ) / (1024 * 1024)
+    num_shards = len([f for f in copied_files if f.endswith(".safetensors")])
+    log(f"[Aggregation] Saved {num_shards} shard(s), total {total_size_mb:.1f} MB")
 
     # Save consolidation metadata
     consolidation_meta = {
@@ -801,6 +804,7 @@ def consolidate_model(tracker, num_epochs=10):
         "final_epoch": num_epochs,
         "num_params": num_params,
         "total_size_mb": round(total_size_mb, 1),
+        "num_shards": num_shards,
         "avg_load_time_s": round(sum(load_times) / len(load_times), 2),
         "averaging_time_s": round(avg_time, 2),
         "save_time_s": round(save_time, 2),
