@@ -45,14 +45,18 @@ cluster_envs:
 jobs:
   - name: train-new
     cluster_env: cpu-training
-    working_dir: "."
-    entrypoint: "python train_new.py"
-    # Optionally override runtime_env per job (e.g., different NUM_WORKERS)
+    working_dir: "./app/scale_train"
+    entrypoint: "python train.py"
     runtime_env:
       env_vars:
         NUM_WORKERS: "20"
 
-  - name: process-images
-    cluster_env: cpu-training
-    working_dir: "."
-    entrypoint: "python examples/image_processing/process_images.py"
+ingress-nginx:
+  enabled: true
+  controller:
+    admissionWebhooks:
+      enabled: false
+    service:
+      type: LoadBalancer
+      annotations:
+        service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"

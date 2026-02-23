@@ -902,22 +902,39 @@ if __name__ == "__main__":
     try:
         log(f"Starting simplified job: Model Download Only")
 
-        # Step 1: Download Model (Driver or single task)
-        log(f"[Step 1] Download Model")
-        try:
-             # Run as remote task to use worker memory, wait for result
-             ray.get(download_model.remote())
-        except Exception as e:
-             log(f"[Error] Remote download task failed: {e}")
-             raise
-        
-        # Step 2: Download Dataset (Distributed across workers)
-        log(f"[Step 2] Download Dataset (Distributed)")
-        download_dataset_distributed()
+        # Check if model and dataset already exist — skip download if so
+        model_exists = os.path.exists(MODEL_SAVE_PATH) and "config.json" in os.listdir(MODEL_SAVE_PATH)
+        dataset_exists = False
+        if os.path.exists(DATASET_SAVE_PATH):
+            parquet_count = sum(1 for r, d, fs in os.walk(DATASET_SAVE_PATH) for f in fs if f.endswith(".parquet"))
+            dataset_exists = parquet_count >= 140  # expect 140 parquet files
 
-        # Step 3: Validate Downloads
-        log(f"[Step 3] Validate Downloads")
-        validate_downloads()
+        if model_exists and dataset_exists:
+            log(f"[Skip] Model already exists at {MODEL_SAVE_PATH} (config.json found)")
+            log(f"[Skip] Dataset already exists at {DATASET_SAVE_PATH} ({parquet_count} parquet files)")
+            log(f"[Skip] Skipping Steps 1-3 (download & validate). Proceeding to training.")
+        else:
+            # Step 1: Download Model (Driver or single task)
+            log(f"[Step 1] Download Model")
+            if model_exists:
+                log(f"[Skip] Model already exists, skipping download.")
+            else:
+                try:
+                     ray.get(download_model.remote())
+                except Exception as e:
+                     log(f"[Error] Remote download task failed: {e}")
+                     raise
+
+            # Step 2: Download Dataset (Distributed across workers)
+            log(f"[Step 2] Download Dataset (Distributed)")
+            if dataset_exists:
+                log(f"[Skip] Dataset already exists ({parquet_count} files), skipping download.")
+            else:
+                download_dataset_distributed()
+
+            # Step 3: Validate Downloads
+            log(f"[Step 3] Validate Downloads")
+            validate_downloads()
 
         # Step 4: Distributed Training (each worker loads full model + trains + checkpoints)
         log(f"[Step 4] Distributed Training Simulation (full model per worker + 10 epochs)")
