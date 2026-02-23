@@ -1,0 +1,24 @@
+# Anyscale Workspace configuration for interactive scale_train execution
+# 
+# Prerequisites:
+#   1. Create the compute config first:
+#      anyscale compute-config create -n scale-train-compute -f compute-config.yaml
+#
+#   2. Then create the workspace:
+#      anyscale workspace_v2 create -f workspace.yaml
+#
+name: scale-train-workspace
+
+# Use the pre-built workspace image
+image_uri: anyscale/image/image-for-workspace-scale-train-workspace:2
+
+# Named compute config (created via compute-config.yaml)
+compute_config: scale-train-compute
+
+# Use the same cloud as the job
+cloud: vibhansaanycloud3
+
+env_vars:
+  RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
+  HF_TOKEN: ""
+  HF_HUB_DISABLE_XET: "1"
