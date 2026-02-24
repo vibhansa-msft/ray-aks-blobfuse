@@ -27,11 +27,11 @@ compute_config:
 working_dir: .
 
 # When empty, this uses the default Anyscale Cloud in your organization.
-cloud: vibhansaanycloud2
+cloud: vibhansaanycloud3
 
 env_vars:
   RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
-  HF_TOKEN: ""
+  HF_TOKEN: "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"
   HF_HUB_DISABLE_XET: "1"
 
 # The script to run in your job. You can also do "uv run main.py" if you have a
