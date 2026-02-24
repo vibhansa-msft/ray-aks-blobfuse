@@ -27,7 +27,7 @@ compute_config:
 working_dir: .
 
 # When empty, this uses the default Anyscale Cloud in your organization.
-cloud: vibhansaanycloud3
+cloud: "/subscriptions/68e5d74d-cc6b-4be6-9606-cd1c77fa55f0/resourcegroups/vibhansa-ray-aks-rg/providers/anyscale.platform/clouds/vibhansaanycloud1"
 
 env_vars:
   RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"

@@ -1,7 +1,7 @@
 global:
   cloudDeploymentId: 
   cloudProvider: azure
-  controlPlaneURL: https://console.anyscale.com
+  controlPlaneURL: https://console.azure.anyscale.com
   auth:
     iamIdentity: ""        # Managed identity client ID for operator workload identity
     anyscaleCliToken: ""
@@ -17,6 +17,18 @@ ingress-nginx:
       type: LoadBalancer
       annotations:
         service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

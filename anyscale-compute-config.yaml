@@ -1,9 +1,9 @@
-cloud: vibhansaanycloud3
+cloud: vibhansaanycloud1
 head_node_type:
-  name: head-small
-  instance_type: 2CPU-8GB
+  name: head-d48
+  instance_type: head-d48
 worker_node_types:
-  - name: worker-small
-    instance_type: 2CPU-8GB
-    min_workers: 0
-    max_workers: 10
+  - name: worker-d48
+    instance_type: worker-d48
+    min_workers: 15
+    max_workers: 25

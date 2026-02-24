@@ -9,6 +9,8 @@
 
 param(
     [string]$EnvFile = ".env.example",
+    [string]$AnyscaleHost = "https://console.azure.anyscale.com",
+    [string]$AutoCliLogin = "true",
     [string]$PersistentVolumeClaim = "blob-pvc-checkpoint",
     [string]$KubernetesZones = "1,2,3",
     [string]$OperatorIdentity = "",  # Optional: federated identity for the Anyscale operator service account
@@ -78,6 +80,82 @@ function Parse-CloudDeploymentIdFromText {
         if ($match.Success) { return $match.Groups[1].Value }
     }
     return $null
+}
+
+function Normalize-CloudName {
+    param([string]$InputCloud)
+    if (-not $InputCloud) { return $InputCloud }
+    $trimmed = $InputCloud.Trim()
+    if ($trimmed -match "(?i)/providers/anyscale\.platform/clouds/([^/]+)$") {
+        return $matches[1]
+    }
+    return $trimmed
+}
+
+function Assert-AnyscaleAuth {
+    param(
+        [string]$ControlPlaneHost,
+        [string]$Token,
+        [bool]$AutoLogin = $true
+    )
+
+    if (-not $ControlPlaneHost) { throw "ANYSCALE_HOST is empty." }
+
+    $env:ANYSCALE_HOST = $ControlPlaneHost
+    if ($Token) {
+        $env:ANYSCALE_CLI_TOKEN = $Token
+    }
+
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $out = & anyscale cloud list 2>&1
+    $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+
+    if ($exitCode -eq 0) {
+        Write-Host "[ANYSCALE] Credentials validated for host: $ControlPlaneHost" -ForegroundColor Green
+        return
+    }
+
+    $joined = ($out -join "`n")
+    $authError = $joined -match "invalid or have expired|run `anyscale login`|v2/api-keys"
+
+    if (-not $authError) {
+        throw "Failed to validate Anyscale credentials for $Host. anyscale cloud list exit code: $exitCode"
+    }
+
+    if (-not $AutoLogin) {
+        throw "Credentials are invalid for $ControlPlaneHost. Set a valid ANYSCALE_CLI_TOKEN for this host, or enable AutoCliLogin."
+    }
+
+    Write-Host "[ANYSCALE] Existing credentials are invalid for $ControlPlaneHost. Starting interactive CLI login..." -ForegroundColor Yellow
+
+    # Remove possibly-invalid env token so login/session credentials can take effect.
+    if (Test-Path Env:ANYSCALE_CLI_TOKEN) {
+        Remove-Item Env:ANYSCALE_CLI_TOKEN -ErrorAction SilentlyContinue
+    }
+
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & anyscale login
+    $loginExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+
+    if ($loginExitCode -ne 0) {
+        throw "Interactive anyscale login failed for $ControlPlaneHost (exit code $loginExitCode)."
+    }
+
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $out2 = & anyscale cloud list 2>&1
+    $exitCode2 = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+
+    if ($exitCode2 -ne 0) {
+        throw "Login completed but credentials still fail for $ControlPlaneHost. Please verify account context and API key scope."
+    }
+
+    Write-Host "[ANYSCALE] Login successful and credentials validated for host: $ControlPlaneHost" -ForegroundColor Green
 }
 
 function Get-CloudResourceId {
@@ -394,9 +472,14 @@ $location = Require-Var $envVars "LOC"
 $aksName = Require-Var $envVars "AKS"
 $storageAccount = Require-Var $envVars "SA"
 $container = Require-Var $envVars "CONTAINER"
-$anyscaleToken = Require-Var $envVars "ANYSCALE_CLI_TOKEN"
-$cloudName = Require-Var $envVars "ANYSCALE_CLOUD_NAME"
+$anyscaleToken = $envVars["ANYSCALE_CLI_TOKEN"]
+$cloudNameRaw = Require-Var $envVars "ANYSCALE_CLOUD_NAME"
+$cloudName = Normalize-CloudName -InputCloud $cloudNameRaw
 $originalCloudName = $cloudName
+
+if ($cloudNameRaw -ne $cloudName) {
+    Write-Host "[INFO] Normalized cloud reference to CLI name: $cloudNameRaw -> $cloudName" -ForegroundColor Cyan
+}
 
 # Optional overrides from .env.example
 if ($envVars["ANYSCALE_NAMESPACE"]) { $Namespace = $envVars["ANYSCALE_NAMESPACE"] }
@@ -421,15 +504,17 @@ if ($envVars["ANYSCALE_COMPUTE_CONFIG_FILE"]) { $ComputeConfigFile = $envVars["A
 if ($envVars["ANYSCALE_OPERATOR_VALUES_FILE"]) { $OperatorValuesFile = $envVars["ANYSCALE_OPERATOR_VALUES_FILE"] }
 if ($envVars["ANYSCALE_CPU_VALUES_FILE"]) { $CpuValuesFile = $envVars["ANYSCALE_CPU_VALUES_FILE"] }
 if ($envVars["ANYSCALE_OPERATOR_CHART_VERSION"]) { $OperatorChartVersion = $envVars["ANYSCALE_OPERATOR_CHART_VERSION"] }
+if ($envVars["ANYSCALE_HOST"]) { $AnyscaleHost = $envVars["ANYSCALE_HOST"] }
 if ($envVars["ANYSCALE_COMPUTE_CONFIG_NAME"]) { $ComputeConfigName = $envVars["ANYSCALE_COMPUTE_CONFIG_NAME"] }
 if ($envVars["ANYSCALE_NEW_CLOUD_NAME"]) { $NewCloudName = $envVars["ANYSCALE_NEW_CLOUD_NAME"] }
 if ($envVars["ANYSCALE_DELETE_EXISTING_CLOUD"]) { $DeleteExistingCloud = $envVars["ANYSCALE_DELETE_EXISTING_CLOUD"] }
 if ($envVars["ANYSCALE_DELETE_CLOUD_NAME"]) { $DeleteCloudName = $envVars["ANYSCALE_DELETE_CLOUD_NAME"] }
 if ($envVars["ANYSCALE_STRICT_LIFECYCLE"]) { $StrictLifecycle = $envVars["ANYSCALE_STRICT_LIFECYCLE"] }
+if ($envVars["ANYSCALE_AUTO_CLI_LOGIN"]) { $AutoCliLogin = $envVars["ANYSCALE_AUTO_CLI_LOGIN"] }
 
 if ($NewCloudName) {
     Write-Host "[INFO] Overriding cloud name: $originalCloudName -> $NewCloudName" -ForegroundColor Cyan
-    $cloudName = $NewCloudName
+    $cloudName = Normalize-CloudName -InputCloud $NewCloudName
 }
 
 # Normalize string toggles to bools
@@ -438,6 +523,7 @@ $InstallOperatorFlag = Normalize-Bool $InstallOperator
 $RegisterCloudFlag = Normalize-Bool $RegisterCloud
 $DeleteExistingCloudFlag = Normalize-Bool $DeleteExistingCloud
 $StrictLifecycleFlag = Normalize-Bool $StrictLifecycle
+$AutoCliLoginFlag = Normalize-Bool $AutoCliLogin
 $setupFailureModeNormalized = (($SetupFailureMode -split '#')[0].Trim().Trim('"', "'"))
 if (-not $setupFailureModeNormalized) { $setupFailureModeNormalized = "auto" }
 $setupFailureModeNormalized = $setupFailureModeNormalized.ToLower()
@@ -531,8 +617,15 @@ $bucketEndpoint = "https://$storageAccount.dfs.core.windows.net"
 $bucketUrl = $bucketName
 Write-Host "[INFO] Using cloud storage bucket $bucketUrl" -ForegroundColor Green
 
-Write-Host "[ANYSCALE] Setting CLI token from .env (no auth login command in this CLI version)" -ForegroundColor Cyan
-$env:ANYSCALE_CLI_TOKEN = $anyscaleToken
+if ($anyscaleToken) {
+    Write-Host "[ANYSCALE] Setting CLI token from .env" -ForegroundColor Cyan
+    $env:ANYSCALE_CLI_TOKEN = $anyscaleToken
+} else {
+    Write-Host "[ANYSCALE] ANYSCALE_CLI_TOKEN not set in env file; will use interactive login/session credentials." -ForegroundColor Yellow
+}
+$env:ANYSCALE_HOST = $AnyscaleHost
+Write-Host "[ANYSCALE] Using control plane host: $AnyscaleHost" -ForegroundColor Cyan
+Assert-AnyscaleAuth -ControlPlaneHost $AnyscaleHost -Token $anyscaleToken -AutoLogin $AutoCliLoginFlag
 
 Write-Host "[FLAGS] DoSetupRaw=$DoSetup InstallOperatorRaw=$InstallOperator RegisterCloudRaw=$RegisterCloud" -ForegroundColor Gray
 Write-Host "[FLAGS] DoSetup=$DoSetupFlag InstallOperator=$InstallOperatorFlag RegisterCloud=$RegisterCloudFlag" -ForegroundColor Gray
@@ -812,7 +905,24 @@ $computePath = Join-Path $PSScriptRoot $ComputeConfigFile
 if (Test-Path $computePath) {
     Write-Host "[ANYSCALE] Creating compute config from $ComputeConfigFile" -ForegroundColor Cyan
     if (-not $ComputeConfigName) { $ComputeConfigName = "$cloudName-compute" }
-    $createArgs = @("compute-config", "create", "-n", $ComputeConfigName, $computePath)
+    $computePathForCreate = $computePath
+    $tempComputePath = $null
+    try {
+        $computeRaw = Get-Content $computePath -Raw
+        if ($computeRaw -match "(?m)^\s*cloud\s*:") {
+            $normalizedComputeRaw = [regex]::Replace($computeRaw, "(?m)^\s*cloud\s*:\s*.*$", "cloud: $cloudName")
+            if ($normalizedComputeRaw -ne $computeRaw) {
+                $tempComputePath = Join-Path $env:TEMP ("anyscale-compute-config-normalized-{0}.yaml" -f ([Guid]::NewGuid().ToString("N")))
+                $normalizedComputeRaw | Out-File -FilePath $tempComputePath -Encoding utf8
+                $computePathForCreate = $tempComputePath
+                Write-Host "[INFO] Normalized compute-config cloud field for create call: $cloudName" -ForegroundColor Gray
+            }
+        }
+    } catch {
+        Write-Host "[WARN] Could not preprocess compute config file; using original file. $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    $createArgs = @("compute-config", "create", "-n", $ComputeConfigName, $computePathForCreate)
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     $createOutput = & anyscale @createArgs 2>&1
@@ -822,17 +932,35 @@ if (Test-Path $computePath) {
     if ($exitCode -ne 0) {
         Write-Host "[WARN] anyscale compute-config create returned exit code $exitCode (name=$ComputeConfigName)" -ForegroundColor Yellow
     }
+    if ($tempComputePath -and (Test-Path $tempComputePath)) {
+        Remove-Item -Path $tempComputePath -Force -ErrorAction SilentlyContinue
+    }
 } else {
     Write-Host "[WARN] Compute config file '$ComputeConfigFile' not found; skipping compute-config create." -ForegroundColor Yellow
 }
 
 # Always list and surface the latest compute config for copy/paste
 $listOutput = @()
+$fallbackGetOutput = @()
+$usedGetFallback = $false
 try {
     $listOutput = & anyscale compute-config list --cloud-name $cloudName 2>&1
     $listOutput | ForEach-Object { Write-Host $_ }
 } catch {
-    Write-Host "[WARN] Unable to list compute configs: $($_.Exception.Message)" -ForegroundColor Yellow
+    $errText = $_.Exception.Message
+    Write-Host "[WARN] Unable to list compute configs: $errText" -ForegroundColor Yellow
+    if ($ComputeConfigName -and ($errText -match "sort_by_clauses" -or $errText -match "value_error\.extra")) {
+        Write-Host "[INFO] Falling back to 'anyscale compute-config get -n $ComputeConfigName'" -ForegroundColor Yellow
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $fallbackGetOutput = & anyscale compute-config get -n $ComputeConfigName 2>&1
+        $fallbackExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAP
+        $fallbackGetOutput | ForEach-Object { Write-Host $_ }
+        if ($fallbackExitCode -eq 0) {
+            $usedGetFallback = $true
+        }
+    }
 }
 
 $configs = @()
@@ -841,6 +969,13 @@ if ($configs.Count -gt 0) {
     $latest = $configs[-1]
     Write-Host "[INFO] Latest compute config detected: name=$($latest.Name) id=$($latest.Id)" -ForegroundColor Green
     $jobCmd = "anyscale job submit --compute-config $($latest.Name) --cloud $cloudName --working-dir . -- python app/train_new.py"
+    Write-Host "[INFO] Sample job submit command (copy/paste then swap entrypoint if needed):" -ForegroundColor Yellow
+    Write-Host "       $jobCmd" -ForegroundColor Gray
+    $jobCmd | Out-File -FilePath "anyscale-job-submit.txt" -Encoding ASCII
+    Write-Host "[INFO] Saved sample to anyscale-job-submit.txt" -ForegroundColor Green
+} elseif ($usedGetFallback) {
+    Write-Host "[INFO] Compute config verified via get: name=$ComputeConfigName" -ForegroundColor Green
+    $jobCmd = "anyscale job submit --compute-config $ComputeConfigName --cloud $cloudName --working-dir . -- python app/train_new.py"
     Write-Host "[INFO] Sample job submit command (copy/paste then swap entrypoint if needed):" -ForegroundColor Yellow
     Write-Host "       $jobCmd" -ForegroundColor Gray
     $jobCmd | Out-File -FilePath "anyscale-job-submit.txt" -Encoding ASCII
