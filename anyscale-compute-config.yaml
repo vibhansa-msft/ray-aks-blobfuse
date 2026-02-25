@@ -1,4 +1,4 @@
-cloud: vibhansaanycloud1
+cloud: vikasanycloud2
 head_node_type:
   name: head-d48
   instance_type: head-d48
@@ -7,3 +7,4 @@ worker_node_types:
     instance_type: worker-d48
     min_workers: 10
     max_workers: 25
+

@@ -9,31 +9,31 @@
 
 param(
     [string]$EnvFile = ".env.example",
-    [string]$AnyscaleHost = "https://console.azure.anyscale.com",
-    [string]$AutoCliLogin = "true",
-    [string]$PersistentVolumeClaim = "blob-pvc-checkpoint",
-    [string]$KubernetesZones = "1,2,3",
+    [string]$AnyscaleHost = "",
+    [string]$AutoCliLogin = "",
+    [string]$PersistentVolumeClaim = "",
+    [string]$KubernetesZones = "",
     [string]$OperatorIdentity = "",  # Optional: federated identity for the Anyscale operator service account
-    [string]$Namespace = "anyscale-system",
+    [string]$Namespace = "",
     [string]$ServiceAccountName = "anyscale-operator",
-    [string]$WorkspaceServiceAccountName = "default",
-    [string]$ValuesFile = "anyscale-operator-values.yaml",
-    [string]$HelmRepo = "https://charts.anyscale.com",
-    [string]$HelmRelease = "anyscale-operator",
+    [string]$WorkspaceServiceAccountName = "",
+    [string]$ValuesFile = "",
+    [string]$HelmRepo = "",
+    [string]$HelmRelease = "",
     [string]$CloudDeploymentId = "",
     [string]$ComputeConfigFile = "anyscale-compute-config.yaml",
     [string]$ComputeConfigName = "",
     [string]$OperatorValuesFile = "anyscale-operator-config.yaml",
     [string]$CpuValuesFile = "anyscale-cpu-config.yaml",
-    [string]$OperatorChartVersion = "1.4.0",
+    [string]$OperatorChartVersion = "",
     [string]$NewCloudName = "",          # optional: create/register under a different cloud name
     [string]$DeleteExistingCloud = "false", # optional: delete an existing cloud before creating
     [string]$DeleteCloudName = "",       # optional: explicit cloud name to delete (defaults to original env name)
-    [string]$DoSetup = "false",          # anyscale cloud setup (flaky on Windows CLI; default off)
+    [string]$DoSetup = "",          # anyscale cloud setup (flaky on Windows CLI; default off)
     [string]$SetupFailureMode = "auto",  # auto: ignore known Windows CLI false-negative only; strict: fail; ignore: always continue
-    [string]$StrictLifecycle = "true",   # true: block on delete/register/cloud-id failures
-    [string]$InstallOperator = "true",
-    [string]$RegisterCloud = "true"      # default on so users get a usable cloud
+    [string]$StrictLifecycle = "",   # true: block on delete/register/cloud-id failures
+    [string]$InstallOperator = "",
+    [string]$RegisterCloud = ""      # default on so users get a usable cloud
 )
 
 Set-StrictMode -Version Latest
@@ -238,6 +238,111 @@ function Normalize-Bool {
     # Strip inline comments and surrounding quotes/whitespace
     $v = ($v -split '#')[0].Trim().Trim('"', "'")
     return ($v.ToLower() -in @("1","true","yes","y","on"))
+}
+
+function Normalize-K8sZones {
+    param([string]$Value)
+    if (-not $Value) { return "" }
+    $zones = ($Value -split '#')[0].Trim().Trim('"', "'")
+    if (-not $zones) { return "" }
+    $zones = ($zones -replace "\s*,\s*", ",")
+    if ($zones.StartsWith("-")) {
+        Write-Host "[WARN] Ignoring invalid ANYSCALE_K8S_ZONES value: $zones" -ForegroundColor Yellow
+        return ""
+    }
+    if ($zones -notmatch "^[A-Za-z0-9._,-]+$") {
+        Write-Host "[WARN] Ignoring malformed ANYSCALE_K8S_ZONES value: $zones" -ForegroundColor Yellow
+        return ""
+    }
+    return $zones
+}
+
+function Sync-ConsolidatedConfigs {
+    param(
+        [string]$RootPath,
+        [string]$CloudNameRaw,
+        [string]$CloudName,
+        [string]$ControlPlaneHost,
+        [string]$ComputeConfigName,
+        [string]$ComputeConfigFile,
+        [string]$HeadInstanceType,
+        [string]$WorkerInstanceType,
+        [string]$WorkerMinNodes,
+        [string]$WorkerMaxNodes,
+        [string]$CloudDeploymentId,
+        [string]$AnyscaleToken,
+        [string]$OperatorIdentity,
+        [string]$SyncEnabled = "true"
+    )
+
+    if (-not (Normalize-Bool $SyncEnabled)) {
+        Write-Host "[SYNC] Skipping config sync (ANYSCALE_SYNC_CONFIGS=false)." -ForegroundColor Yellow
+        return
+    }
+
+    $effectiveCloudRef = if ($CloudNameRaw) { $CloudNameRaw } else { $CloudName }
+
+    $computePath = Join-Path $RootPath $ComputeConfigFile
+    $computeContent = @(
+        "cloud: $CloudName",
+        "head_node_type:",
+        "  name: $HeadInstanceType",
+        "  instance_type: $HeadInstanceType",
+        "worker_node_types:",
+        "  - name: $WorkerInstanceType",
+        "    instance_type: $WorkerInstanceType",
+        "    min_workers: $WorkerMinNodes",
+        "    max_workers: $WorkerMaxNodes"
+    ) -join "`n"
+    Set-Content -Path $computePath -Value ($computeContent + "`n") -Encoding ASCII
+    Write-Host "[SYNC] Wrote standardized compute config: $ComputeConfigFile" -ForegroundColor Green
+
+    $scaleJobPath = Join-Path $RootPath "app/scale_train/job.yaml"
+    if (Test-Path $scaleJobPath) {
+        $raw = Get-Content $scaleJobPath -Raw
+        $updated = $raw
+        $updated = [regex]::Replace($updated, "(?ms)^compute_config:\s*\n(?:^[ \t].*\n)+", "compute_config: `"$ComputeConfigName`"`n`n")
+        $updated = [regex]::Replace($updated, "(?m)^cloud:\s*.*$", "cloud: `"$effectiveCloudRef`"")
+        if ($updated -ne $raw) {
+            Set-Content -Path $scaleJobPath -Value $updated -Encoding ASCII
+            Write-Host "[SYNC] Updated app/scale_train/job.yaml" -ForegroundColor Green
+        }
+    }
+
+    $projectPath = Join-Path $RootPath "anyscale-project.yaml"
+    if (Test-Path $projectPath) {
+        $raw = Get-Content $projectPath -Raw
+        $updated = [regex]::Replace($raw, "(?m)^\s*cloud:\s*.*$", "      cloud: `"$effectiveCloudRef`"")
+        if ($updated -ne $raw) {
+            Set-Content -Path $projectPath -Value $updated -Encoding ASCII
+            Write-Host "[SYNC] Updated anyscale-project.yaml cloud reference" -ForegroundColor Green
+        }
+    }
+
+    $operatorPath = Join-Path $RootPath "anyscale-operator-config.yaml"
+    if (Test-Path $operatorPath) {
+        $raw = Get-Content $operatorPath -Raw
+        $updated = [regex]::Replace($raw, "(?m)^\s*controlPlaneURL:\s*.*$", "  controlPlaneURL: $ControlPlaneHost")
+        if ($CloudDeploymentId) {
+            $updated = [regex]::Replace($updated, "(?m)^\s*cloudDeploymentId:\s*.*$", "  cloudDeploymentId: $CloudDeploymentId")
+        }
+        if ($AnyscaleToken) {
+            $updated = [regex]::Replace($updated, "(?m)^\s*anyscaleCliToken:\s*.*$", "    anyscaleCliToken: `"$AnyscaleToken`"")
+        }
+        if ($OperatorIdentity) {
+            $updated = [regex]::Replace($updated, "(?m)^\s*iamIdentity:\s*.*$", "    iamIdentity: `"$OperatorIdentity`"")
+            $updated = [regex]::Replace($updated, "(?m)^\s*clientId:\s*.*$", "    clientId: `"$OperatorIdentity`"")
+        }
+        if ($updated -ne $raw) {
+            Set-Content -Path $operatorPath -Value $updated -Encoding ASCII
+            Write-Host "[SYNC] Updated anyscale-operator-config.yaml" -ForegroundColor Green
+        }
+    }
+
+    $jobSubmitPath = Join-Path $RootPath "anyscale-job-submit.txt"
+    $jobCmd = "anyscale job submit --compute-config $ComputeConfigName --cloud $CloudName --working-dir . -- python app/train_new.py"
+    Set-Content -Path $jobSubmitPath -Value ($jobCmd + "`n") -Encoding ASCII
+    Write-Host "[SYNC] Refreshed anyscale-job-submit.txt" -ForegroundColor Green
 }
 
 function Ensure-PvcForNamespace {
@@ -476,6 +581,11 @@ $anyscaleToken = $envVars["ANYSCALE_CLI_TOKEN"]
 $cloudNameRaw = Require-Var $envVars "ANYSCALE_CLOUD_NAME"
 $cloudName = Normalize-CloudName -InputCloud $cloudNameRaw
 $originalCloudName = $cloudName
+$HeadInstanceType = "head-d48"
+$WorkerInstanceType = "worker-d48"
+$WorkerMinNodes = "15"
+$WorkerMaxNodes = "25"
+$SyncConfigs = "true"
 
 if ($cloudNameRaw -ne $cloudName) {
     Write-Host "[INFO] Normalized cloud reference to CLI name: $cloudNameRaw -> $cloudName" -ForegroundColor Cyan
@@ -506,6 +616,11 @@ if ($envVars["ANYSCALE_CPU_VALUES_FILE"]) { $CpuValuesFile = $envVars["ANYSCALE_
 if ($envVars["ANYSCALE_OPERATOR_CHART_VERSION"]) { $OperatorChartVersion = $envVars["ANYSCALE_OPERATOR_CHART_VERSION"] }
 if ($envVars["ANYSCALE_HOST"]) { $AnyscaleHost = $envVars["ANYSCALE_HOST"] }
 if ($envVars["ANYSCALE_COMPUTE_CONFIG_NAME"]) { $ComputeConfigName = $envVars["ANYSCALE_COMPUTE_CONFIG_NAME"] }
+if ($envVars["ANYSCALE_HEAD_INSTANCE_TYPE"]) { $HeadInstanceType = $envVars["ANYSCALE_HEAD_INSTANCE_TYPE"] }
+if ($envVars["ANYSCALE_WORKER_INSTANCE_TYPE"]) { $WorkerInstanceType = $envVars["ANYSCALE_WORKER_INSTANCE_TYPE"] }
+if ($envVars["ANYSCALE_WORKER_MIN_NODES"]) { $WorkerMinNodes = $envVars["ANYSCALE_WORKER_MIN_NODES"] }
+if ($envVars["ANYSCALE_WORKER_MAX_NODES"]) { $WorkerMaxNodes = $envVars["ANYSCALE_WORKER_MAX_NODES"] }
+if ($envVars["ANYSCALE_SYNC_CONFIGS"]) { $SyncConfigs = $envVars["ANYSCALE_SYNC_CONFIGS"] }
 if ($envVars["ANYSCALE_NEW_CLOUD_NAME"]) { $NewCloudName = $envVars["ANYSCALE_NEW_CLOUD_NAME"] }
 if ($envVars["ANYSCALE_DELETE_EXISTING_CLOUD"]) { $DeleteExistingCloud = $envVars["ANYSCALE_DELETE_EXISTING_CLOUD"] }
 if ($envVars["ANYSCALE_DELETE_CLOUD_NAME"]) { $DeleteCloudName = $envVars["ANYSCALE_DELETE_CLOUD_NAME"] }
@@ -516,6 +631,31 @@ if ($NewCloudName) {
     Write-Host "[INFO] Overriding cloud name: $originalCloudName -> $NewCloudName" -ForegroundColor Cyan
     $cloudName = Normalize-CloudName -InputCloud $NewCloudName
 }
+
+$KubernetesZones = Normalize-K8sZones -Value $KubernetesZones
+
+if (-not $HeadInstanceType) { $HeadInstanceType = "head-d48" }
+if (-not $WorkerInstanceType) { $WorkerInstanceType = "worker-d48" }
+if (-not $WorkerMinNodes) { $WorkerMinNodes = "15" }
+if (-not $WorkerMaxNodes) { $WorkerMaxNodes = "25" }
+if (-not $SyncConfigs) { $SyncConfigs = "true" }
+if (-not $ComputeConfigName) { $ComputeConfigName = "$cloudName-compute" }
+
+Sync-ConsolidatedConfigs `
+    -RootPath $PSScriptRoot `
+    -CloudNameRaw $cloudNameRaw `
+    -CloudName $cloudName `
+    -ControlPlaneHost $AnyscaleHost `
+    -ComputeConfigName $ComputeConfigName `
+    -ComputeConfigFile $ComputeConfigFile `
+    -HeadInstanceType $HeadInstanceType `
+    -WorkerInstanceType $WorkerInstanceType `
+    -WorkerMinNodes $WorkerMinNodes `
+    -WorkerMaxNodes $WorkerMaxNodes `
+    -CloudDeploymentId $CloudDeploymentId `
+    -AnyscaleToken $anyscaleToken `
+    -OperatorIdentity $OperatorIdentity `
+    -SyncEnabled $SyncConfigs
 
 # Normalize string toggles to bools
 $DoSetupFlag = Normalize-Bool $DoSetup
@@ -693,9 +833,12 @@ if ($RegisterCloudFlag) {
         "--cloud-storage-bucket-region", $location,
         "--azure-tenant-id", $tenantId,
         "--persistent-volume-claim", $PersistentVolumeClaim,
-        "--kubernetes-zones", $KubernetesZones,
         "--yes"
     )
+
+    if ($KubernetesZones) {
+        $registerArgs += @("--kubernetes-zones", $KubernetesZones)
+    }
 
     if ($OperatorIdentity) {
         $registerArgs += @("--anyscale-operator-iam-identity", $OperatorIdentity)
