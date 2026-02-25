@@ -1,7 +1,7 @@
 huggingface_hub
 pyarrow
 pandas
-ray[data]
+ray[data]==2.52.1
 requests
 tqdm
 torch
