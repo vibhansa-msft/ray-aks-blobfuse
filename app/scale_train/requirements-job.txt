@@ -1,0 +1,13 @@
+huggingface_hub
+pyarrow
+pandas
+ray[data]
+requests
+tqdm
+torch
+transformers
+accelerate
+tokenizers
+sentencepiece
+protobuf
+safetensors
