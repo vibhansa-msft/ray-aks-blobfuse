@@ -5,6 +5,6 @@ head_node_type:
 worker_node_types:
   - name: worker-d48
     instance_type: worker-d48
-    min_workers: 10
+    min_workers: 15
     max_workers: 25
 
