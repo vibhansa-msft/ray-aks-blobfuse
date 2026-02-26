@@ -167,7 +167,6 @@ DATASET_SAVE_PATH = os.path.join(STORAGE_PATH, "dataset")
 # Path to save checkpoints
 CHECKPOINT_SAVE_PATH = os.path.join(STORAGE_PATH, "checkpoint")
 
-
 # ------------------------------------------------------------------------------
 # Ray Initialization
 # ------------------------------------------------------------------------------
@@ -191,7 +190,10 @@ log(f"[Init] Connected. Cluster Resources: {resources}")
 # ------------------------------------------------------------------------------
 # Task 1: Model Download (Centralized)
 # ------------------------------------------------------------------------------
-@ray.remote(num_cpus=10)
+@ray.remote(
+    num_cpus=10,
+    runtime_env={"env_vars": {"HF_TOKEN": os.environ.get("HF_TOKEN", "")}}
+)
 def download_model():
     """
     Downloads the entire model repository to shared storage.

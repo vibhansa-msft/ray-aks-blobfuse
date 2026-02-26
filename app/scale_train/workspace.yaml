@@ -1,0 +1,35 @@
+# anyscale workspace_v2 create -f workspace.yaml 2>&1 | Out-String
+# anyscale workspace_v2 start --name scale-train-workspace 2>&1 | Out-String
+# anyscale workspace_v2 wait --name scale-train-workspace --state RUNNING --timeout-s 600 2>&1 | Out-String
+# anyscale workspace_v2 push --name scale-train-workspace --source . 2>&1 | Out-String
+name: scale-train-workspace
+
+# Same base image as Dockerfile; deps installed via requirements
+image_uri: "anyscale/ray:2.52.0-slim-py312"
+ray_version: "2.52.0"
+
+compute_config: "vikasanycloud2-compute"
+
+cloud: "vikasanycloud2"
+
+idle_termination_minutes: 120
+
+requirements:
+    - huggingface_hub
+    - pyarrow
+    - pandas
+    - requests
+    - tqdm
+    - torch
+    - transformers
+    - accelerate
+    - tokenizers
+    - sentencepiece
+    - protobuf
+    - safetensors
+
+env_vars:
+    RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
+    HF_TOKEN: ""
+    HF_HUB_DISABLE_XET: "1"
+    STORAGE_PATH: "/mnt/shared_storage"

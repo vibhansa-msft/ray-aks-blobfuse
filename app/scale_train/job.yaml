@@ -5,10 +5,14 @@ name: scale-train
 # like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
 # that it meets certain specs), or you can build new images using the Anyscale
 # image builder at https://console.anyscale-staging.com/v2/container-images.
+# image_uri: anyscale/ray:2.52.0-slim-py312
 image_uri: anyscale/ray:2.52.0-slim-py312
 # containerfile: ./Dockerfile
 
 compute_config: "vikasanycloud2-compute"
+
+# Install job dependencies at runtime on top of the standard base image.
+requirements: requirements-job.txt
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
@@ -30,5 +34,5 @@ entrypoint: python train.py
 # If there is an error, do not retry.
 max_retries: 0
 
-# Kill the job after 2 hours to control costs.
-timeout_s: 720
+# Kill the job after 1 hour to control costs.
+timeout_s: 3600
