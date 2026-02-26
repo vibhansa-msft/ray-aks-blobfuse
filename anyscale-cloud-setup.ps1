@@ -9,13 +9,13 @@
 
 param(
     [string]$EnvFile = ".env.example",
-    [string]$PersistentVolumeClaim = "blob-pvc-checkpoint",
+    [string]$PersistentVolumeClaim = "blob-pvc-dataset",
     [string]$KubernetesZones = "1,2,3",
     [string]$OperatorIdentity = "",  # Optional: federated identity for the Anyscale operator service account
-    [string]$Namespace = "anyscale-system",
+    [string]$Namespace = "anyscale-operator",
     [string]$ServiceAccountName = "anyscale-operator",
     [string]$WorkspaceServiceAccountName = "default",
-    [string]$ValuesFile = "anyscale-operator-values.yaml",
+    [string]$ValuesFile = "values.yaml",
     [string]$HelmRepo = "https://charts.anyscale.com",
     [string]$HelmRelease = "anyscale-operator",
     [string]$CloudDeploymentId = "",

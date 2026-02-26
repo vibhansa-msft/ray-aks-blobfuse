@@ -1,0 +1,29 @@
+# StorageClass for Anyscale cluster_storage (READ-WRITE)
+# Used by Anyscale via blob-pvc-checkpoint PVC for /mnt/cluster_storage
+# - block-cache: optimized for large sequential writes (model checkpoints)
+# - disable-kernel-cache: bypasses kernel page cache to avoid stale reads
+#   across pods and ensure consistency on shared blobfuse mounts
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: blobfuse-anyscale
+
+provisioner: blob.csi.azure.com
+parameters:
+  protocol: fuse
+  storageAccount: anyscalestorageacount
+  containername: datasets
+  resourceGroup: vibhansa-ray-aks-rg
+  mountWithWorkloadIdentityToken: "true"
+
+mountOptions:
+  - -o allow_other
+  - --block-cache
+  - --disable-kernel-cache
+  # - --log-level=LOG_DEBUG
+  # - --log-type=base
+  # - --log-file-path=/var/log/blobfuse-anyscale.log
+
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

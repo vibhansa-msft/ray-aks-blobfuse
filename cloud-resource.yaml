@@ -1,0 +1,12 @@
+resources:
+- cloud_resource_id: cldrsrc_kbkiwr8djfbykdn1s8pqsg5m6u
+  name: default
+  provider: AZURE
+  compute_stack: K8S
+  region: swedencentral
+  object_storage:
+    bucket_name: "abfss://datasets@anyscalestorageacount.dfs.core.windows.net"
+    endpoint: "https://anyscalestorageacount.blob.core.windows.net"
+    region: swedencentral
+  file_storage:
+    persistent_volume_claim: blob-pvc-checkpoint

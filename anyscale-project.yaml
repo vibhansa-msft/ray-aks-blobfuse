@@ -20,8 +20,8 @@ cluster_envs:
         - pillow>=10.0.0
         - huggingface_hub>=0.19.0
       env_vars:
-        DATA_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/c4"
-        CHECKPOINT_DIR: "abfs://datasets@vibhansaanyscalestorage.dfs.core.windows.net/checkpoints"
+        DATA_DIR: "abfs://datasets@tanyaanyscalestorage.dfs.core.windows.net/c4"
+        CHECKPOINT_DIR: "abfs://datasets@tanyaanyscalestorage.dfs.core.windows.net/checkpoints"
         HF_TOKEN: ""
         APP_DIR: "/app"
         NUM_WORKERS: "20"
@@ -32,7 +32,7 @@ cluster_envs:
         RAY_DISABLE_IMPORT_WARNING: "1"
     config:
       # Replace with a real Anyscale cloud/instance/image for your org.
-      cloud: "vibhansaanycloud2"
+      cloud: "/subscriptions/68e5d74d-cc6b-4be6-9606-cd1c77fa55f0/resourcegroups/vibhansa-ray-aks-rg/providers/anyscale.platform/clouds/tanyaanyscalecloud"
       head_node_type: "Standard_D48ds_v5"
       worker_node_types:
         - name: worker-default

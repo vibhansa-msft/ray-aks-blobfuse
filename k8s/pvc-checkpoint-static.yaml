@@ -1,0 +1,45 @@
+# ========== STATIC PERSISTENT VOLUME (AZURE BLOB STORAGE - CHECKPOINTS) ==========
+# Pre-provisioned PV that directly references an existing blob container.
+# Avoids CSI dynamic provisioning (so no "container create" RBAC needed).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: blob-pv-checkpoint
+  annotations:
+    pv.kubernetes.io/provisioned-by: blob.csi.azure.com
+spec:
+  capacity:
+    storage: 5Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: blobfuse-anyscale
+  mountOptions:
+    - -o allow_other
+    - --block-cache
+    - --disable-kernel-cache
+  csi:
+    driver: blob.csi.azure.com
+    readOnly: false
+    volumeHandle: blob-pv-checkpoint   # unique handle
+    volumeAttributes:
+      containerName: datasets
+      protocol: fuse2
+    nodeStageSecretRef:
+      name: azure-storage-account-secret
+      namespace: default
+---
+# ========== PERSISTENT VOLUME CLAIM (AZURE BLOB STORAGE - CHECKPOINTS) ==========
+# Binds to the static PV above.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: blob-pvc-checkpoint
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: blobfuse-anyscale
+  resources:
+    requests:
+      storage: 5Ti
+  volumeName: blob-pv-checkpoint

@@ -9,7 +9,7 @@
 #   - Large capacity for model weights and training artifacts
 #
 # Related resources:
-#   - StorageClass: storageclass-blobfuse2.yaml (blobfuse-checkpoints)
+#   - StorageClass: storageclass-blobfuse2.yaml (blobfuse-anyscale)
 #   - Dataset PVC: pvc-training-data.yaml
 #   - Consumer: rayjob-gpu.yaml, rayjob-cpu.yaml
 
@@ -29,7 +29,7 @@ spec:
   accessModes: [ "ReadWriteMany" ]
   
   # StorageClass optimized for read-write checkpoint access with block-cache
-  storageClassName: blobfuse-checkpoints
+  storageClassName: blobfuse-anyscale
   
   # Storage capacity requested
   # Note: This is the requested capacity; actual quota depends on storage account limits

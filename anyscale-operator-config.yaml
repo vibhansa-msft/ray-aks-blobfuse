@@ -1,12 +1,13 @@
 global:
-  cloudDeploymentId: cldrsrc_4zvnxbesvhey3wj296lgcfqfwl
+  cloudDeploymentId: cldrsrc_kbkiwr8djfbykdn1s8pqsg5m6u
   cloudProvider: azure
-  controlPlaneURL: https://console.anyscale.com
+  controlPlaneURL: https://console.azure.anyscale.com
   auth:
-    iamIdentity: """
-    anyscaleCliToken: ""
+    audience: "api://086bc555-6989-4362-ba30-fded273e432b/.default"
+    iamIdentity: ""
+    anyscaleCliToken: "<your-anyscale-cli-token>"
   azure:
-    clientId: ""           # Client ID for MSI used by operator
+    clientId: "bd2b9e22-4586-4158-8dd0-79261da9111f"           # Client ID for MSI used by operator
 
 ingress-nginx:
   enabled: true
@@ -17,16 +18,3 @@ ingress-nginx:
       type: LoadBalancer
       annotations:
         service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,0 +1,42 @@
+# Static PV + PVC for Anyscale operator namespace (cluster_storage mount)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: blob-pv-checkpoint-anyscale
+  annotations:
+    pv.kubernetes.io/provisioned-by: blob.csi.azure.com
+spec:
+  capacity:
+    storage: 5Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: blobfuse-anyscale
+  mountOptions:
+    - -o allow_other
+    - --block-cache
+    - --disable-kernel-cache
+  csi:
+    driver: blob.csi.azure.com
+    readOnly: false
+    volumeHandle: blob-pv-checkpoint-anyscale
+    volumeAttributes:
+      containerName: datasets
+      protocol: fuse2
+    nodeStageSecretRef:
+      name: azure-storage-account-secret
+      namespace: anyscale-operator
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: blob-pvc-checkpoint
+  namespace: anyscale-operator
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: blobfuse-anyscale
+  resources:
+    requests:
+      storage: 5Ti
+  volumeName: blob-pv-checkpoint-anyscale

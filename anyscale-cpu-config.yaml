@@ -1,4 +1,5 @@
 cloud_provider: AZURE
+compute_stack: K8S
 workloads:
   instanceTypes:
     enableDefaults: true  

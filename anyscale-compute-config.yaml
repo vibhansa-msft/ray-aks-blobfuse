@@ -1,9 +1,7 @@
-cloud: vibhansaanycloud2
-head_node_type:
-  name: head-small
-  instance_type: 2CPU-8GB
-worker_node_types:
-  - name: worker-small
-    instance_type: 2CPU-8GB
-    min_workers: 0
-    max_workers: 10
+cloud: /subscriptions/68e5d74d-cc6b-4be6-9606-cd1c77fa55f0/resourcegroups/vibhansa-ray-aks-rg/providers/anyscale.platform/clouds/tanyaanyscalecloud
+worker_nodes:
+  - instance_type: "2CPU-8GB"
+    min_nodes: 0
+    max_nodes: 10
+max_resources:
+  CPU: 80
