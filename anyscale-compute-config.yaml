@@ -1,4 +1,6 @@
 cloud: /subscriptions/68e5d74d-cc6b-4be6-9606-cd1c77fa55f0/resourcegroups/vibhansa-ray-aks-rg/providers/anyscale.platform/clouds/tanyaanyscalecloud
+head_node:
+  instance_type: "head-d48"
 worker_nodes:
   - instance_type: "2CPU-8GB"
     min_nodes: 0
