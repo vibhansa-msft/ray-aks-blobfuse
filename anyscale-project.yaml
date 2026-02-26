@@ -20,6 +20,7 @@ cluster_envs:
         - pillow>=10.0.0
         - huggingface_hub>=0.19.0
       env_vars:
+        RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
         DATA_DIR: "abfs://datasets@tanyaanyscalestorage.dfs.core.windows.net/c4"
         CHECKPOINT_DIR: "abfs://datasets@tanyaanyscalestorage.dfs.core.windows.net/checkpoints"
         HF_TOKEN: ""
