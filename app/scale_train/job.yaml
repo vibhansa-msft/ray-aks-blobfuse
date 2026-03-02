@@ -5,16 +5,14 @@ name: scale-train
 # like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
 # that it meets certain specs), or you can build new images using the Anyscale
 # image builder at https://console.anyscale-staging.com/v2/container-images.
-image_uri: anyscale/ray:2.43.0-slim-py312
+# image_uri: anyscale/ray:2.52.0-slim-py312
+image_uri: anyscale/ray:2.52.0-slim-py312
 # containerfile: ./Dockerfile
 
-compute_config:
-  worker_nodes:
-    - instance_type: "worker-d48"
-      min_nodes: 2
-      max_nodes: 20
-  max_resources:
-    CPU: 768
+compute_config: "vikasanycloud2-compute"
+
+# Install job dependencies at runtime on top of the standard base image.
+requirements: requirements-job.txt
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
@@ -22,12 +20,12 @@ compute_config:
 working_dir: .
 
 # When empty, this uses the default Anyscale Cloud in your organization.
-cloud: /subscriptions/68e5d74d-cc6b-4be6-9606-cd1c77fa55f0/resourcegroups/vibhansa-ray-aks-rg/providers/anyscale.platform/clouds/tanyaanyscalecloud
+cloud: "vikasanycloud2"
 
 env_vars:
-  RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
-  HF_TOKEN: "<your-hf-token>"
-  HF_HUB_DISABLE_XET: "1"
+    RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
+    HF_TOKEN: ""
+    HF_HUB_DISABLE_XET: "1"
 
 # The script to run in your job. You can also do "uv run main.py" if you have a
 # pyproject.toml file in your working_dir.
@@ -36,5 +34,5 @@ entrypoint: python train.py
 # If there is an error, do not retry.
 max_retries: 0
 
-# Kill the job after 2 hours to control costs.
-timeout_s: 7200
+# Kill the job after 1 hour to control costs.
+timeout_s: 3600
